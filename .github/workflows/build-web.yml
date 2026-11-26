@@ -22,6 +22,183 @@ jobs:
         run: |
           unzip -q ProjectC3_Web_v0.9_Source.zip -d source
           test -f source/ProjectC3_Web_v0.9/Ford3D/project.godot
+      - name: Apply Web v0.9.1 mobile controls and layout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          
+          root = Path("source/ProjectC3_Web_v0.9/Ford3D")
+          def edit(name, changes):
+              p = root / name
+              s = p.read_text(encoding="utf-8")
+              for old,new in changes:
+                  if s.count(old) != 1:
+                      raise RuntimeError(f"{name}: expected one occurrence, found {s.count(old)}: {old[:100]}")
+                  s = s.replace(old,new,1)
+              p.write_text(s,encoding="utf-8")
+              print("Patched",name)
+          
+          edit("project.godot",[
+              ('config/version="0.9.0"','config/version="0.9.1"'),
+              ('window/stretch/aspect="keep"','window/stretch/aspect="expand"'),
+          ])
+          edit("field/hud.gd",[
+              ('shade.visibility_changed.connect(cancel_bar_drag)',
+               '''shade.visibility_changed.connect(cancel_bar_drag)
+          	ui.resized.connect(layout_screen)
+          	layout_screen()
+          
+          func layout_screen() -> void:
+          	var extra := (ui.size - Vector2(960,540)).max(Vector2.ZERO)
+          	radar.get_parent().position = Vector2(758 + extra.x,12)
+          	feed.get_parent().position = Vector2(144 + extra.x * .5,421 + extra.y)
+          	target_name.get_parent().position = Vector2(704 + extra.x,419 + extra.y)
+          	stick.position = Vector2(18,412 + extra.y)
+          	for i in slots.size():
+          		slots[i].position = SkillButton.bar_rect(i).position + Vector2(extra.x * .5,extra.y)
+          	gateway.position = Vector2(650 + extra.x,372 + extra.y)
+          	shade.size = ui.size
+          	veil.size = ui.size
+          	desks.size = ui.size
+          	frame.position = Vector2(193,39) + extra * .5
+          	book_editor.position = extra * .5
+          	for floating in [bag,sheet]:
+          		floating.position = floating.position.clamp(Vector2.ZERO,(ui.size-floating.size).max(Vector2.ZERO))'''),
+              ('if SkillButton.bar_rect(i).has_point(p): return i','if slots[i].get_rect().has_point(p): return i'),
+          ])
+          edit("field/floating_panel.gd",[
+              ('position=(world-offset).clamp(Vector2.ZERO,Vector2(960,540)-size)','position=(world-offset).clamp(Vector2.ZERO,(get_parent().size-size).max(Vector2.ZERO))'),
+          ])
+          edit("field/skill_button.gd",[
+              ('canvas.draw_string(font,r.position+Vector2(1,44),"◇",HORIZONTAL_ALIGNMENT_CENTER,r.size.x-2,20,Color("#56675c"))',
+               '''var c := r.get_center()
+          		var d := Vector2(7,0)
+          		var diamond := PackedVector2Array([c-d,c-Vector2(0,7),c+d,c+Vector2(0,7),c-d])
+          		canvas.draw_polyline(diamond,Color("#56675c"),1.5,true)'''),
+          ])
+          edit("ford/world.gd",[
+              ('var finger:=-1','''var finger:=-1
+          var pinch_finger:=-1
+          var pinch_last:=Vector2.ZERO
+          var camera_buttons: Array[Button]=[]
+          var quality_button: Button
+          var quality_level:=2'''),
+              ('''for i in 4:
+          		var key := hud.button(["↶","↷","−","+"][i])
+          		key.tooltip_text=["Камера влево","Камера вправо","Отдалить","Приблизить"][i]
+          		hud.place(hud.ui,key,Rect2(758+i*47,157,44,40))
+          		hud.ui.move_child(key,hud.desks.get_index())
+          		if i<2:
+          			key.button_down.connect(func(): turning=-1 if i==0 else 1)
+          			key.button_up.connect(func(): turning=0)
+          		else: key.pressed.connect(_camera_action.bind(i))''',
+               '''for i in 2:
+          		var key := hud.button(["-","+"][i])
+          		key.tooltip_text=["Отдалить","Приблизить"][i]
+          		hud.place(hud.ui,key,Rect2(758+i*47,157,44,40))
+          		hud.ui.move_child(key,hud.desks.get_index())
+          		key.pressed.connect(_camera_action.bind(i+2))
+          		camera_buttons.append(key)
+          	quality_button=hud.button("Графика")
+          	quality_button.add_theme_font_size_override("font_size",13)
+          	hud.place(hud.ui,quality_button,Rect2(852,157,94,40))
+          	hud.ui.move_child(quality_button,hud.desks.get_index())
+          	quality_button.pressed.connect(func(): apply_quality((quality_level+1)%3))
+          	hud.ui.resized.connect(layout_camera_buttons)
+          	layout_camera_buttons()
+          	apply_quality(2)'''),
+              ('func _camera_action(i: int) -> void:', '''func layout_camera_buttons() -> void:
+          	var extra := maxf(0,hud.ui.size.x-960)
+          	for i in camera_buttons.size():
+          		camera_buttons[i].position.x=758+i*47+extra
+          	quality_button.position.x=852+extra
+          
+          func apply_quality(level: int) -> void:
+          	quality_level=level
+          	$Sun.shadow_enabled=level>0
+          	$Sun.directional_shadow_max_distance=42.0 if level==2 else 22.0
+          	get_viewport().msaa_3d=Viewport.MSAA_2X if level==2 else Viewport.MSAA_DISABLED
+          	quality_button.text=["Низкая","Средняя","Высокая"][level]
+          	quality_button.tooltip_text="Качество графики: "+quality_button.text
+          
+          func _camera_action(i: int) -> void:'''),
+              ('if hud.shade.visible or town_transition: finger=-1; right_drag=false; return',
+               '''if hud.shade.visible or town_transition:
+          		finger=-1
+          		pinch_finger=-1
+          		right_drag=false
+          		return'''),
+              ('elif e is InputEventScreenDrag and e.index==finger:',
+               '''elif e is InputEventScreenDrag and pinch_finger>=0 and (e.index==finger or e.index==pinch_finger):
+          		var previous := finger_last.distance_to(pinch_last)
+          		if e.index==finger: finger_last=e.position
+          		else: pinch_last=e.position
+          		var current := finger_last.distance_to(pinch_last)
+          		if previous>8 and current>8:
+          			wanted_distance=clampf(wanted_distance*previous/current,7,26)
+          		orbiting=true
+          		get_viewport().set_input_as_handled()
+          	elif e is InputEventScreenTouch and not e.pressed and pinch_finger>=0 and (e.index==finger or e.index==pinch_finger):
+          		if e.index==finger:
+          			finger=pinch_finger
+          			finger_last=pinch_last
+          		pinch_finger=-1
+          		finger_origin=finger_last
+          		orbiting=true
+          		get_viewport().set_input_as_handled()
+          	elif e is InputEventScreenDrag and e.index==finger:'''),
+              ('''if what==NOTIFICATION_APPLICATION_FOCUS_OUT:
+          		finger=-1
+          		right_drag=false''',
+               '''if what==NOTIFICATION_APPLICATION_FOCUS_OUT:
+          		finger=-1
+          		pinch_finger=-1
+          		right_drag=false'''),
+              ('''if e is InputEventScreenTouch and e.pressed and finger<0:
+          		finger=e.index
+          		finger_origin=e.position
+          		finger_last=e.position
+          		orbiting=false
+          		get_viewport().set_input_as_handled()''',
+               '''if e is InputEventScreenTouch and e.pressed:
+          		if finger<0:
+          			finger=e.index
+          			finger_origin=e.position
+          			finger_last=e.position
+          			orbiting=false
+          		elif pinch_finger<0 and e.index!=finger:
+          			pinch_finger=e.index
+          			pinch_last=e.position
+          			orbiting=true
+          		get_viewport().set_input_as_handled()'''),
+          ])
+          edit("web/shell.html",[
+              ('initial-scale=1, viewport-fit=cover','initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'),
+              ('body{display:grid;place-items:center}','body{position:fixed;inset:0;overscroll-behavior:none;touch-action:none}'),
+              ('max-width:100%;max-height:100%;background:#101b18','width:100%;height:100%;background:#101b18'),
+              ('</style>','''#fullscreen{position:fixed;z-index:2;top:8px;left:50%;transform:translateX(-50%);width:auto;margin:0;padding:7px 12px;font-size:12px;background:#172823db;color:#f2e7ca;border:1px solid #8a7754}#fullscreen[hidden]{display:none}
+          </style>'''),
+              ('<div id="cover">','<button id="fullscreen" type="button" hidden>На весь экран</button>\n<div id="cover">'),
+              ('PRE-ALPHA 0.9 · SINGLE PLAYER','PRE-ALPHA 0.9.1 · SINGLE PLAYER'),
+              ('На телефоне: касания и джойстик, лучше горизонтальный экран.','На телефоне: джойстик, касания, масштаб двумя пальцами. Лучше горизонтальный экран.'),
+              ("  canvas.addEventListener('contextmenu',e=>e.preventDefault());",'''  const full=document.getElementById('fullscreen');
+            const canFull=typeof document.documentElement.requestFullscreen==='function';
+            function fullscreen(){
+              if(!canFull)return;
+              try {
+                const task=document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+                Promise.resolve(task).then(()=>{
+                  if(document.fullscreenElement&&screen.orientation&&screen.orientation.lock) screen.orientation.lock('landscape').catch(()=>{});
+                }).catch(()=>{});
+              } catch(e){}
+            }
+            full.addEventListener('click',fullscreen);
+            document.addEventListener('fullscreenchange',()=>{full.textContent=document.fullscreenElement?'Выйти из полного экрана':'На весь экран';});
+            canvas.addEventListener('contextmenu',e=>e.preventDefault());'''),
+              ("    if(started)return;started=true;play.disabled=true;progress.hidden=false;status.textContent='Загрузка мира…';","    if(started)return;started=true;play.disabled=true;progress.hidden=false;status.textContent='Загрузка мира…';\n    if(canFull&&matchMedia('(pointer: coarse)').matches&&!document.fullscreenElement)fullscreen();"),
+              ('cover.hidden=true;canvas.focus();','cover.hidden=true;full.hidden=!canFull;canvas.focus();'),
+          ])
+          PY
       - name: Install Godot 4.7.2
         run: |
           set -euo pipefail
