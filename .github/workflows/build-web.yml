@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'ProjectC3_Web_v0.9_Source.zip'
+      - '.github/workflows/build-web.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,9 +38,13 @@ jobs:
         run: |
           set -euo pipefail
           project="$PWD/source/ProjectC3_Web_v0.9/Ford3D"
+          # Enable the texture format required by the mobile Web export preset.
+          sed -i '/^textures\/vram_compression\/import_etc2_astc=/d' "$project/project.godot"
+          sed -i '/^\[rendering\]$/a textures/vram_compression/import_etc2_astc=true' "$project/project.godot"
+          grep -F 'textures/vram_compression/import_etc2_astc=true' "$project/project.godot"
           mkdir -p "$PWD/site"
           godot --headless --path "$project" --editor --import
-          godot --headless --path "$project" --export-release Web "$PWD/site/index.html"
+          godot --headless --verbose --path "$project" --export-release Web "$PWD/site/index.html"
           for f in index.html index.js index.wasm index.pck; do test -s "site/$f"; done
           touch site/.nojekyll
       - uses: actions/configure-pages@v5
