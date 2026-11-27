@@ -441,3 +441,18 @@ func _initialize() -> void:
 	quit(0)
 ''',encoding="utf-8")
 print("C3 v0.12 equipment patch complete")
+
+
+# Potions use their actual cooldown; material IDs stay compatible with old saves.
+patch("field/actions.gd",[
+('entries["item/"+id]={"name":item[0],"effect":id,"item":id,"description":"Предмет из инвентаря"}','entries["item/"+id]={"name":item[0],"effect":id,"item":id,"description":"Предмет из инвентаря","cd":8.0 if item[1]=="Расходник" else 0.0}'),
+])
+# Correct ranged reach to reflect equipped bows/staves.
+patch("ford/world.gd",[
+('if id=="hit": return 5.2 if profile.mystic() else (4.8 if profile.role_score("Дальний бой")>0 else REACH)','''if id=="hit":
+		var weapon: String=profile.equipment.get("Оружие","")
+		var style: String=Loot.ITEMS[weapon][6] if Loot.ITEMS.has(weapon) else ""
+		if style=="bow": return 4.8
+		if style=="staff": return 5.2
+		return 5.2 if profile.mystic() else (4.8 if profile.role_score("Дальний бой")>0 else REACH)'''),
+])
