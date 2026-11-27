@@ -1,0 +1,353 @@
+from pathlib import Path
+import sys
+root=Path(sys.argv[1])
+def patch(file, pairs):
+    p=root/file
+    s=p.read_text(encoding="utf-8")
+    for a,b in pairs:
+        if s.count(a)!=1:
+            raise RuntimeError(f"{file}: expected one occurrence, got {s.count(a)}: {a[:110]!r}")
+        s=s.replace(a,b,1)
+    p.write_text(s,encoding="utf-8")
+    print("C3 0.11 patched",file)
+
+# Ten slots: migrate old bars without deleting learned skills/items.
+(root/"field/actions.gd").write_text('''extends RefCounted
+const Loot=preload("res://field/loot.gd")
+static func build(book: Array[Dictionary]) -> Dictionary:
+	var entries: Dictionary={}
+	for i in book.size():
+		var record := book[i].duplicate()
+		record["index"]=i
+		entries["spell/"+str(record.name)]=record
+	for id in Loot.ITEMS:
+		var item: Array=Loot.ITEMS[id]
+		entries["item/"+id]={"name":item[0],"effect":id,"item":id,"description":"Предмет из инвентаря"}
+	return entries
+
+static func initial() -> Array:
+	return ["","","","","","","","","",""]
+
+static func normalize(saved: Variant, entries: Dictionary, hero) -> Array:
+	var result := initial()
+	if not saved is Array: return result
+	for i in mini(10,saved.size()):
+		var id: Variant=saved[i]
+		if id is String and entries.has(id) and not result.has(id):
+			var rec: Dictionary=entries[id]
+			if not rec.has("index") or hero.knows(rec): result[i]=id
+	return result
+''',encoding="utf-8")
+patch("field/skill_button.gd",[
+('Rect2(177+index*88,453,78,75)','Rect2(144+index*64,466,60,60)'),
+('var image_r:=Rect2(r.get_center()-Vector2(26,29),Vector2(52,52))','var image_r:=Rect2(r.get_center()-Vector2(21,22),Vector2(42,42))'),
+('Vector2(52,52*clampf','Vector2(42,42*clampf'),
+('''	else:
+		var c := r.get_center()
+		var d := Vector2(7,0)
+		var diamond := PackedVector2Array([c-d,c-Vector2(0,7),c+d,c+Vector2(0,7),c-d])
+		canvas.draw_polyline(diamond,Color("#56675c"),1.5,true)''',''),
+('str(number),HORIZONTAL_ALIGNMENT_LEFT','str(number%10),HORIZONTAL_ALIGNMENT_LEFT'),
+])
+patch("field/careers.gd",[
+('return sk.level==1 or learned.has(sk.name)','return learned.has(sk.name)'),
+])
+patch("field/spellbook.gd",[
+('var status:=""','var status:=""\nvar training:=false'),
+('func present(profile, entries: Dictionary) -> void:','func present(profile, entries: Dictionary, at_trainer: bool=false) -> void:\n\ttraining=at_trainer'),
+('for i in 7:\n\t\tif Slot.bar_rect','for i in 10:\n\t\tif Slot.bar_rect'),
+('elif hero.level()>=rec.level and hero.sp>=rec.sp:','elif training and hero.level()>=rec.level and hero.sp>=rec.sp:'),
+('"Книга умений",27,PAPER','"Мастер класса" if training else "Книга умений",27,PAPER'),
+('elif not available: words(r.position+Vector2(66,49),"Изучить",12,MUTED)','elif not available: words(r.position+Vector2(66,49),"Изучить" if training else "У мастера",12,MUTED)'),
+('elif not allowed(chosen): action_text="Ур. %d · %d SP" % [sk.level,sk.sp] if hero.level()<sk.level else "Изучить · %d SP" % sk.sp','elif not allowed(chosen): action_text=("Ур. %d · %d SP" % [sk.level,sk.sp] if hero.level()<sk.level else "Изучить · %d SP" % sk.sp) if training else "Только у мастера"'),
+('Rect2(159,413,641,121)','Rect2(130,413,660,121)'),
+('for i in 7:\n\t\tvar rec: Dictionary=catalog.get','for i in 10:\n\t\tvar rec: Dictionary=catalog.get'),
+('Slot.paint(self,Slot.bar_rect(i),i+1,rec','Slot.paint(self,Slot.bar_rect(i),i+1,rec'),
+] if False else [
+('var status:=""','var status:=""\nvar training:=false'),
+('func present(profile, entries: Dictionary) -> void:','func present(profile, entries: Dictionary, at_trainer: bool=false) -> void:\n\ttraining=at_trainer'),
+('for i in 7:\n\t\tif Slot.bar_rect','for i in 10:\n\t\tif Slot.bar_rect'),
+('elif hero.level()>=rec.level and hero.sp>=rec.sp:','elif training and hero.level()>=rec.level and hero.sp>=rec.sp:'),
+('"Книга умений",27,PAPER','"Мастер класса" if training else "Книга умений",27,PAPER'),
+('elif not available: words(r.position+Vector2(66,49),"Изучить",12,MUTED)','elif not available: words(r.position+Vector2(66,49),"Изучить" if training else "У мастера",12,MUTED)'),
+('elif not allowed(chosen): action_text="Ур. %d · %d SP" % [sk.level,sk.sp] if hero.level()<sk.level else "Изучить · %d SP" % sk.sp','elif not allowed(chosen): action_text=("Ур. %d · %d SP" % [sk.level,sk.sp] if hero.level()<sk.level else "Изучить · %d SP" % sk.sp) if training else "Только у мастера"'),
+('Rect2(159,413,641,121)','Rect2(130,413,660,121)'),
+('for i in 7:\n\t\tvar rec: Dictionary=catalog.get','for i in 10:\n\t\tvar rec: Dictionary=catalog.get'),
+])
+# Item drag from bag directly to the real, adaptively placed slots.
+patch("field/floating_panel.gd",[
+('signal equip(id: String)','signal equip(id: String)\nsignal hotbar_drop(id: String, point: Vector2)'),
+('elif drag_item!="" and peer.visible and peer.get_rect().has_point(world):','elif drag_item!="" and peer.visible and peer.get_rect().has_point(world):'),
+('''							if SLOTS[i]==slot and peer.gear_cell(i).has_point(world-peer.position): equip.emit(drag_item)
+			pointer=-99''','''							if SLOTS[i]==slot and peer.gear_cell(i).has_point(world-peer.position): equip.emit(drag_item)
+				elif drag_item!="" and not dragging:
+					hotbar_drop.emit(drag_item,world)
+			pointer=-99'''),
+])
+patch("field/hud.gd",[
+('signal skill_pressed(slot: int)','signal skill_pressed(slot: int)\nsignal item_assigned(id: String, slot: int)\nsignal autoattack_requested\nsignal pickup_requested\nsignal target_requested\nsignal trainer_requested'),
+('var gateway: Button','var gateway: Button\nvar autoattack: Button\nvar pickup_button: Button\nvar target_button: Button\nvar trainer_button: Button'),
+('for i in 7:\n\t\tvar key := SkillButton.new()','for i in 10:\n\t\tvar key := SkillButton.new()'),
+('''		slots.append(key)
+	var names''','''		slots.append(key)
+	autoattack=icon_button("hit","Автоатака")
+	place(ui,autoattack,Rect2(866,447,76,80))
+	autoattack.pressed.connect(func(): autoattack_requested.emit())
+	pickup_button=icon_button("pickup","Подобрать добычу")
+	place(ui,pickup_button,Rect2(804,468,54,54))
+	pickup_button.pressed.connect(func(): pickup_requested.emit())
+	target_button=icon_button("cycle","Следующая цель")
+	place(ui,target_button,Rect2(804,408,54,54))
+	target_button.pressed.connect(func(): target_requested.emit())
+	trainer_button=button("Мастер класса · изучить")
+	place(ui,trainer_button,Rect2(650,315,295,47))
+	trainer_button.hide()
+	trainer_button.pressed.connect(func(): trainer_requested.emit())
+	var names'''),
+('bag.peer=sheet','bag.hotbar_drop.connect(func(id,point):\n\t\tvar slot:=bar_at(point)\n\t\tif slot>=0: item_assigned.emit(id,slot))\n\tbag.peer=sheet'),
+('gateway.position = Vector2(650 + extra.x,372 + extra.y)','''gateway.position = Vector2(650 + extra.x,372 + extra.y)
+	autoattack.position=Vector2(866+extra.x,447+extra.y)
+	pickup_button.position=Vector2(804+extra.x,468+extra.y)
+	target_button.position=Vector2(804+extra.x,359+extra.y)
+	trainer_button.position=Vector2(650+extra.x,315+extra.y)'''),
+('func show_book(hero: Careers, catalog: Dictionary) -> void:','func show_book(hero: Careers, catalog: Dictionary, training: bool=false) -> void:'),
+('book_editor.present(hero,catalog)','book_editor.present(hero,catalog,training)'),
+])
+# Radar zoom is centered on hero and clipped to the map, never the game camera.
+(root/"field/radar.gd").write_text('''extends Control
+const Ground=preload("res://ford/ground.gd")
+var town:=false
+var player:=Vector2.ZERO
+var creatures:=PackedVector2Array()
+var hostile:=PackedVector2Array()
+var zoom:=1.0
+
+func change_zoom(direction: float) -> void:
+	zoom=clampf(zoom*pow(1.35,direction),1.0,4.0)
+	queue_redraw()
+
+func mapped(p: Vector2) -> Vector2:
+	var center:=Vector2(180,0) if town else Vector2.ZERO
+	var extent:=Vector2(94,80) if town else Vector2(40,28)
+	if zoom>1.01:
+		var span:=extent/(2.0*zoom)
+		center=player.clamp(center-extent*.5+span,center+extent*.5-span)
+	return ((p-center)/extent*zoom+Vector2(.5,.5))*size
+
+func segment(a: Vector2,b: Vector2,tint: Color,width: float) -> void:
+	var p:=mapped(a)
+	var q:=mapped(b)
+	var rect:=Rect2(Vector2(2,2),size-Vector2(4,4))
+	var points: Array[Vector2]=[]
+	if rect.has_point(p): points.append(p)
+	if rect.has_point(q): points.append(q)
+	var corners: Array[Vector2]=[rect.position,Vector2(rect.end.x,rect.position.y),rect.end,Vector2(rect.position.x,rect.end.y)]
+	for i in 4:
+		var hit=Geometry2D.segment_intersects_segment(p,q,corners[i],corners[(i+1)%4])
+		if hit is Vector2: points.append(hit)
+	if points.size()>=2: draw_line(points[0],points[1],tint,width,true)
+
+func dot(p: Vector2,r: float,c: Color) -> void:
+	var m:=mapped(p)
+	if Rect2(Vector2(r,r),size-Vector2(r*2,r*2)).has_point(m): draw_circle(m,r,c)
+
+func _draw() -> void:
+	draw_rect(Rect2(Vector2.ZERO,size),Color("#526348"))
+	if town:
+		for x in [-33,-18,0,18,33]: segment(Vector2(180+x,-38),Vector2(180+x,38),Color("#b9a880"),2)
+		for z in [-21,3,17,30]: segment(Vector2(135,z),Vector2(225,z),Color("#b9a880"),2)
+		dot(Vector2(180,2),3,Color("#85b9ba"))
+		dot(Vector2(180,37),3,Color("#eac784"))
+	else:
+		for i in range(-14,14):
+			segment(Vector2(Ground.river(i),i),Vector2(Ground.river(i+1),i+1),Color("#739fa2"),minf(8*zoom,12))
+		segment(Vector2(-3,0),Vector2(3,0),Color("#ccad75"),4)
+		for p in creatures: dot(p,2,Color("#e6b479"))
+		for p in hostile: dot(p,2.4,Color("#f08270"))
+	dot(player,3.4,Color("#fff0b3"))
+	draw_rect(Rect2(Vector2.ZERO,size),Color("#aaab83"),false,1)
+''',encoding="utf-8")
+# Low-poly race silhouettes using original rig and additional original geometry.
+(root/"ford/looks.gd").write_text('''extends RefCounted
+static func piece(parent: Node3D, at: Vector3, extent: Vector3, tint: Color, ball: bool=false) -> MeshInstance3D:
+	var mesh: PrimitiveMesh
+	if ball:
+		var sphere:=SphereMesh.new()
+		sphere.radius=.5
+		sphere.height=1.0
+		sphere.radial_segments=8
+		sphere.rings=4
+		mesh=sphere
+	else:
+		var cube:=BoxMesh.new()
+		cube.size=Vector3.ONE
+		mesh=cube
+	var mat:=StandardMaterial3D.new()
+	mat.albedo_color=tint
+	mat.roughness=1.0
+	mesh.material=mat
+	var part:=MeshInstance3D.new()
+	part.mesh=mesh
+	parent.add_child(part)
+	part.position=at
+	part.scale=extent
+	return part
+
+static func fit(model: Node3D,race: String,gender: String,style: int=0) -> void:
+	var body:=model.find_child("Body",true,false) as Node3D
+	if body==null: return
+	var old:=body.get_node_or_null("RaceDetails")
+	if old!=null: body.remove_child(old); old.queue_free()
+	var detail:=Node3D.new()
+	detail.name="RaceDetails"
+	body.add_child(detail)
+	var proportions: Dictionary={"Человек":Vector3(.92,1.12,.91),"Эльф":Vector3(.79,1.18,.83),"Тёмный эльф":Vector3(.82,1.15,.84),"Орк":Vector3(1.21,1.18,1.15),"Гном":Vector3(1.06,.87,1.04)}
+	model.scale=proportions.get(race,Vector3.ONE)
+	if gender=="female": model.scale*=Vector3(.9,1.03,.9)
+	var color: Color={"Человек":Color("#56758d"),"Эльф":Color("#65845c"),"Тёмный эльф":Color("#645678"),"Орк":Color("#876447"),"Гном":Color("#9a7951")}.get(race,Color("#56758d"))
+	color=color.lightened(.08*clampi(style,0,3))
+	piece(detail,Vector3(0,1.18,-.34),Vector3(.72,.76,.10),color)
+	piece(detail,Vector3(0,1.02,.37),Vector3(.56,.13,.06),color.lightened(.18))
+	if race in ["Эльф","Тёмный эльф"]:
+		var skin:=Color("#cba58b") if race=="Эльф" else Color("#9181a4")
+		for side in [-1,1]:
+			var ear:=piece(detail,Vector3(side*.35,1.82,.03),Vector3(.14,.37,.11),skin,true)
+			ear.rotation.z=-side*.65
+	elif race=="Орк":
+		for side in [-1,1]: piece(detail,Vector3(side*.36,1.44,.05),Vector3(.31,.22,.38),Color("#705e46"),true)
+	if gender=="female":
+		var hair:=Color("#6b432f") if style%2==0 else Color("#d2b579")
+		piece(detail,Vector3(0,1.57,-.31),Vector3(.52,.76,.18),hair,true)
+		piece(detail,Vector3(0,.82,-.26),Vector3(.69,.60,.14),color)
+''',encoding="utf-8")
+# Use actual 3D models with distinct silhouettes for three enemy families.
+(root/"ford/creature.gd").write_text('''extends Node3D
+const MODEL=preload("res://ford/models/rootling.glb")
+const Ground=preload("res://ford/ground.gd")
+const Looks=preload("res://ford/looks.gd")
+const NAMES:=["Корневик","Вересковый волк","Сланцевик"]
+var kind:=0
+var rank:=1
+var hp:=33
+var max_hp:=33
+var home:=Vector2.ZERO
+var spoiled:=false
+var stun:=0.0
+var respawn:=0.0
+var phase:=0.0
+var cycle:=0.0
+var swing:=0.0
+var hit_flash:=0.0
+var aggro:=false
+var hostile:=false
+var attack_timer:=0.0
+var limbs: Array[Node3D]=[]
+var contacts: Array[Vector3]=[]
+var torso: Node3D
+var label: Label3D
+var navigation
+
+func setup(p: Vector2,level: int,index: int,species: int=0,nav=null) -> void:
+	home=p
+	rank=level
+	kind=species
+	navigation=nav
+	hostile=kind!=0
+	max_hp=26+level*7+kind*12
+	hp=max_hp
+	phase=index*1.71
+	position=Ground.point(p)
+	if kind==0:
+		var model:=MODEL.instantiate()
+		add_child(model)
+		torso=model.find_child("Body",true,false)
+		for name_ in ["FrontL","FrontR","BackL","BackR"]:
+			limbs.append(model.find_child(name_,true,false))
+	else:
+		torso=Node3D.new()
+		add_child(torso)
+		var color:=Color("#8b8578") if kind==1 else Color("#747c89")
+		if kind==1:
+			Looks.piece(torso,Vector3(0,.65,0),Vector3(.65,.61,1.24),color,true)
+			Looks.piece(torso,Vector3(0,.84,.64),Vector3(.48,.52,.57),color.lightened(.12),true)
+			Looks.piece(torso,Vector3(0,.72,.95),Vector3(.35,.25,.38),Color("#4f4944"),true)
+			for side in [-1,1]:
+				var ear:=Looks.piece(torso,Vector3(side*.17,1.13,.61),Vector3(.16,.29,.15),color.darkened(.2))
+				ear.rotation.z=-side*.23
+				Looks.piece(torso,Vector3(side*.15,.9,.86),Vector3(.07,.07,.07),Color("#efbd62"),true)
+			var tail:=Looks.piece(torso,Vector3(0,.82,-.75),Vector3(.16,.16,.65),color.darkened(.15),true)
+			tail.rotation.x=.45
+		else:
+			Looks.piece(torso,Vector3(0,.97,0),Vector3(.95,.91,.69),color,true)
+			Looks.piece(torso,Vector3(0,1.56,.02),Vector3(.61,.55,.55),color.lightened(.12),true)
+			for side in [-1,1]: Looks.piece(torso,Vector3(side*.14,1.59,.27),Vector3(.10,.08,.08),Color("#f0af57"))
+			Looks.piece(torso,Vector3(0,1.0,.37),Vector3(.17,.24,.08),Color("#dfa65a"),true)
+		for i in 4:
+			var limb:=Node3D.new()
+			torso.add_child(limb)
+			limb.position=Vector3((-.29 if i%2==0 else .29)*(1.6 if kind==2 and i<2 else 1.0),.55 if kind==1 or i>=2 else 1.18,.39 if i<2 and kind==1 else (-.39 if kind==1 else 0.0))
+			Looks.piece(limb,Vector3(0,-.25,0),Vector3(.17,.54,.19) if kind==1 else Vector3(.38,.60,.36),color)
+			limbs.append(limb)
+	for limb in limbs: contacts.append(limb.position)
+	label=Label3D.new()
+	label.position.y=1.8 if kind!=2 else 2.15
+	label.billboard=BaseMaterial3D.BILLBOARD_ENABLED
+	label.font_size=35
+	label.pixel_size=.007
+	label.outline_size=7
+	label.modulate=Color("#f29b84") if hostile else Color("#f0dfb7")
+	add_child(label)
+	update_label()
+
+func update_label() -> void:
+	label.text="%s · %d\\n%d/%d" % [NAMES[kind],rank,hp,max_hp]
+
+func flat() -> Vector2:
+	return Vector2(position.x,position.z)
+
+func tick(dt: float,engaged: bool,player: Vector2) -> void:
+	if hp<=0:
+		respawn-=dt
+		if respawn<=0:
+			hp=max_hp;spoiled=false;stun=0;aggro=false;attack_timer=0;position=Ground.point(home);update_label();show()
+		return
+	var previous:=flat()
+	phase+=dt
+	stun=maxf(0,stun-dt)
+	swing=maxf(0,swing-dt)
+	hit_flash=maxf(0,hit_flash-dt)
+	attack_timer=maxf(0,attack_timer-dt)
+	if engaged or (hostile and previous.distance_to(player)<3.2 and home.distance_to(player)<8): aggro=true
+	if aggro and home.distance_to(player)>9.0: aggro=false;hp=max_hp;spoiled=false;update_label()
+	var goal:=home+Vector2(.72*cos(phase*.72),.64*sin(phase*.58))
+	var speed:=.68
+	if aggro:
+		goal=player
+		speed=2.35 if kind==1 else 1.45
+	if stun<=0 and (not aggro or previous.distance_to(player)>1.24):
+		var next:=previous.move_toward(goal,speed*dt)
+		if navigation==null or navigation.legal(next): position=Ground.point(next)
+	var motion:=flat()-previous
+	var face:=player-flat() if aggro else motion
+	if face.length_squared()>.000001: rotation.y=lerp_angle(rotation.y,atan2(face.x,face.y),minf(1,dt*7))
+	cycle+=motion.length()*8.3
+	var walking:=clampf(motion.length()/maxf(dt*.68,.001),0,1)
+	torso.position.y=.024*sin(phase*2.1)+walking*.045*absf(sin(cycle))
+	torso.rotation.z=.064*sin(cycle)*walking
+	torso.rotation.x=-.29*sin(PI*swing/.35) if swing>0 else .04*walking
+	torso.scale=Vector3.ONE*(1.0+.045*hit_flash/.16)
+	for i in limbs.size():
+		var angle:=cycle+PI*int(i in [1,2])
+		limbs[i].rotation.x=.38*sin(angle)*walking
+		if kind==2 and i<2 and swing>0: limbs[i].rotation.x=-1.25*sin(PI*swing/.35)
+		limbs[i].position=contacts[i]+Vector3.UP*.09*maxf(0,-cos(angle))*walking
+
+func hurt(amount: int) -> bool:
+	aggro=true
+	hit_flash=.16
+	hp=maxi(0,hp-amount)
+	update_label()
+	if hp==0:
+		respawn=12+kind*4;aggro=false;hide()
+	return hp==0
+''',encoding="utf-8")
