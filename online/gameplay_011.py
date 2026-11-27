@@ -351,3 +351,372 @@ func hurt(amount: int) -> bool:
 		respawn=12+kind*4;aggro=false;hide()
 	return hp==0
 ''',encoding="utf-8")
+
+
+patch("field/spellbook.gd",[
+('var ids:=catalog.keys()','var ids:=spell_ids()'), # card_at
+]) if False else None
+p=root/"field/spellbook.gd"
+s=p.read_text(encoding="utf-8")
+assert s.count("var ids:=catalog.keys()")==2
+s=s.replace("var ids:=catalog.keys()","var ids:=spell_ids()")
+s+='''
+func spell_ids() -> Array:
+	var result: Array=[]
+	for id in catalog:
+		if catalog[id].has("index"): result.append(id)
+	return result
+'''
+p.write_text(s,encoding="utf-8")
+patch("field/careers.gd",[
+('var race := ""','var gender:="male"\nvar appearance:=0\nvar race := ""'),
+])
+patch("field/floating_panel.gd",[
+('Dress.fit(figure,hero.equipment)','preload("res://ford/looks.gd").fit(figure,hero.race,hero.gender,hero.appearance)\n\t\tDress.fit(figure,hero.equipment)'),
+])
+patch("ford/world.gd",[
+('const REACH := 1.52','const REACH := 1.52\nconst Looks=preload("res://ford/looks.gd")'),
+('var attack_wait := 0.0','var attack_wait := 0.0\nvar auto_enabled:=false\nvar haste_time:=0.0\nvar focus_time:=0.0\nvar hurt_motion:=0.0\nvar death_wait:=0.0\nvar trainers: Array[Node3D]=[]'),
+('spells=Skills.book(profile)\n\tcatalog=Actions.build(spells)','''if not online_character.is_empty():
+		profile.gender=str(online_character.get("gender","male"))
+		profile.appearance=int(online_character.get("appearance",0))
+	Looks.fit(hero,profile.race,profile.gender,profile.appearance)
+	spells=Skills.book(profile)
+	catalog=Actions.build(spells)'''),
+('''	for i in homes.size():
+		var mob := Beast.new()
+		add_child(mob)
+		mob.setup(homes[i],1+floori(i/3.0),i)
+		mobs.append(mob)''','''	homes.append_array([Vector2(8,7),Vector2(14,-8),Vector2(17,5)])
+	for i in homes.size():
+		var mob := Beast.new()
+		add_child(mob)
+		var species:=0 if i<5 else (1 if i<9 else 2)
+		mob.setup(homes[i],1+floori(i/3.0),i,species,field_ground)
+		mobs.append(mob)
+	build_trainers()'''),
+('key.tooltip_text=["Отдалить","Приблизить"][i]','key.tooltip_text=["Отдалить мини-карту","Приблизить мини-карту"][i]'),
+('key.pressed.connect(_camera_action.bind(i+2))','key.pressed.connect(hud.radar.change_zoom.bind(-1.0 if i==0 else 1.0))'),
+('hud.skill_pressed.connect(use_slot)','''hud.skill_pressed.connect(use_slot)
+	hud.autoattack_requested.connect(toggle_autoattack)
+	hud.pickup_requested.connect(pickup_nearest)
+	hud.target_requested.connect(next_target)
+	hud.trainer_requested.connect(open_trainer)
+	hud.item_assigned.connect(func(id: String,slot: int):
+		var key: String="item/"+id
+		if not catalog.has(key) or profile.inventory.get(id,0)<=0: return
+		var old:=profile.hotbar.find(key)
+		if old>=0: profile.hotbar[old]=""
+		profile.hotbar[slot]=key
+		save_hero()
+		update_ui())'''),
+('if profile.learn(spells[i]): save_hero(); hud.book_editor.queue_redraw()','''if not near_trainer() or not hud.book_editor.training:
+			hud.feed.text="Умения изучаются у мастера твоего класса."
+			return
+		if i>=0 and i<spells.size() and profile.learn(spells[i]):
+			save_hero()
+			hud.book_editor.queue_redraw()
+			update_ui()'''),
+('hud.feed.text="Выбери Корневика, затем нажми удар на панели."','hud.feed.text="Выбери цель, затем нажми отдельную кнопку атаки."'),
+('city_model.visible=town\n\tground=city_ground if town else field_ground','city_model.visible=town\n\tfor trainer in trainers: trainer.visible=town\n\tground=city_ground if town else field_ground'),
+('if e.keycode>=KEY_1 and e.keycode<=KEY_7: use_slot(e.keycode-KEY_1)','if e.keycode>=KEY_1 and e.keycode<=KEY_9: use_slot(e.keycode-KEY_1)\n\t\tif e.keycode==KEY_0: use_slot(9)'),
+('KEY_K: open_window("Умения")','KEY_K: open_window("Умения")\n\t\t\tKEY_SPACE: toggle_autoattack()\n\t\t\tKEY_TAB: next_target()\n\t\t\tKEY_F: pickup_nearest()'),
+('func select_screen(screen: Vector2) -> void:\n\tvar best: Beast','''func select_screen(screen: Vector2) -> void:
+	if town:
+		for trainer in trainers:
+			if cam.is_position_behind(trainer.position): continue
+			var head:=cam.unproject_position(trainer.position+Vector3.UP*1.6)
+			var foot:=cam.unproject_position(trainer.position)
+			if screen.distance_to((head+foot)*.5)<maxf(25,head.distance_to(foot)*.55):
+				if trainer.get_meta("discipline")==profile.origin and near_trainer():
+					open_trainer()
+				else:
+					walk_to(Vector2(trainer.position.x,trainer.position.z)+Vector2(0,1.6))
+					hud.feed.text="Подойди к мастеру своего класса."
+				return
+	var best: Beast'''),
+('target=null\n\tpending=""','target=null\n\tauto_enabled=false\n\tpending=""'),
+('hud.feed.text="Цель выбрана · Корневик"','hud.feed.text="Цель выбрана · "+Beast.NAMES[mob.kind]'),
+('''func use_slot(i: int) -> void:
+	if hud.shade.visible or i<0 or i>=7: return
+	var id: String=profile.hotbar[i]
+	if id.is_empty():
+		hud.show_book(profile,catalog)
+		return
+	if id=="cycle":
+		next_target()
+		hud.slots[i].flash_cast()
+		return
+	if id=="pickup":
+		var nearest:Node3D
+		var radius:=12.01
+		for pile in piles:
+			var gap:=actor.distance_to(pile.point)
+			if pile.visible and gap<radius: radius=gap; nearest=pile
+		if nearest: request_pickup(nearest); flash("pickup")
+		else: hud.feed.text="Поблизости нет добычи."
+		return
+	var sk: Dictionary=catalog[id]''','''func pickup_nearest() -> void:
+	var nearest:Node3D
+	var radius:=12.01
+	for pile in piles:
+		var gap:=actor.distance_to(pile.point)
+		if pile.visible and gap<radius: radius=gap; nearest=pile
+	if nearest: request_pickup(nearest)
+	else: hud.feed.text="Поблизости нет добычи."
+
+func toggle_autoattack() -> void:
+	if town or death_wait>0 or hud.shade.visible or web_menu_open(): return
+	if auto_enabled:
+		auto_enabled=false
+		if pending=="hit": pending="";route.clear()
+		hud.feed.text="Автоатака остановлена."
+		update_ui()
+		return
+	if target==null or target.hp<=0:
+		hud.feed.text="Сначала выбери цель."
+		return
+	auto_enabled=true
+	pending="hit"
+	if actor.distance_to(target.flat())<=action_range("hit") and attack_wait<=0:
+		var d:=target.flat()-actor
+		heading=atan2(d.x,d.y)
+		hero.rotation.y=heading
+		attack(profile.damage())
+	else: plan_chase()
+	update_ui()
+
+func action_range(id: String) -> float:
+	if id=="hit": return 5.2 if profile.mystic() else (4.8 if profile.role_score("Дальний бой")>0 else REACH)
+	var sk: Dictionary=catalog.get(id,{})
+	return 5.8 if sk.get("effect") in ["ranged","drain"] else REACH
+
+func use_slot(i: int) -> void:
+	if hud.shade.visible or web_menu_open() or death_wait>0 or i<0 or i>=10: return
+	var id: String=profile.hotbar[i]
+	if id.is_empty(): return
+	if not catalog.has(id): return
+	if id.begins_with("item/"):
+		var item:=id.trim_prefix("item/")
+		if profile.toggle_item(item):
+			preload("res://ford/worn.gd").fit(hero,profile.equipment)
+			hud.sheet.refresh(true)
+			hud.bag.refresh()
+			save_hero()
+			update_ui()
+		else: hud.feed.text="Предмет недоступен для использования."
+		return
+	var sk: Dictionary=catalog[id]'''),
+('if actor.distance_to(target.flat())>REACH: plan_chase()','if actor.distance_to(target.flat())>action_range(id): plan_chase()'),
+('''		"guard":
+			shield=7''','''		"heal":
+			hp=mini(profile.hp_max(),hp+roundi(profile.hp_max()*.3))
+			sound.effect("ward")
+			contact(hero.position+Vector3.UP*.55,"guard")
+		"renew":
+			mp=mini(profile.mana_max(),mp+roundi(profile.mana_max()*.25))
+			sound.effect("ward")
+		"haste":
+			haste_time=7
+			sound.effect("ward")
+		"focus":
+			focus_time=8
+			sound.effect("ward")
+		"guard":
+			shield=7'''),
+('''		_:
+			if sk.effect=="stun": target.stun=2
+			attack(profile.damage()*(3 if sk.effect=="crush" else 2),"stun" if sk.effect=="stun" else "heavy")''','''		_:
+			if target==null: return
+			if sk.effect=="stun": target.stun=2
+			if sk.effect=="drain": hp=mini(profile.hp_max(),hp+roundi(profile.damage()*.6))
+			attack(profile.damage()*(3 if sk.effect=="crush" else 2),"stun" if sk.effect=="stun" else "heavy")'''),
+('''	engaged=true
+	sound.effect("hit" if kind=="hit" else "heavy")
+	contact(target.position+Vector3.UP*.77,kind)
+	swing=.38
+	attack_wait=1.02
+	float_word(target.position,"−%d" % amount,Color("#fff3c4"))
+	if not target.hurt(amount): return
+	var reward := Loot.roll(0,target.rank,.04*profile.role_score("Добыча"),target.spoiled,rng)''','''	if target==null or target.hp<=0: return
+	engaged=true
+	target.aggro=true
+	swing=.38
+	if kind=="hit":
+		attack_wait=1.05 if haste_time>0 else 1.5
+		if focus_time>0: amount=roundi(amount*1.4)
+	sound.effect("hit" if kind=="hit" else "heavy")
+	var hit_chance:=clampf(.91+float(profile.dexterity()-10)*.002+float(profile.level()-target.rank)*.025,.55,.98)
+	if rng.randf()>hit_chance:
+		float_word(target.position,"Промах",Color("#dfdfda"))
+		return
+	var critical:=kind=="hit" and rng.randf()<clampf(.10+profile.dexterity()*.003,.1,.25)
+	amount=maxi(1,roundi(amount*(1.8 if critical else 1.0)*rng.randf_range(.9,1.1))-target.kind*2)
+	contact(target.position+Vector3.UP*.77,kind)
+	float_word(target.position,("Крит! " if critical else "")+"−%d" % amount,Color("#ffb762") if critical else Color("#fff3c4"))
+	if not target.hurt(amount): return
+	var reward := Loot.roll(target.kind,target.rank,.04*profile.role_score("Добыча"),target.spoiled,rng)'''),
+('Loot.xp_for(0,target.rank,profile.level())','Loot.xp_for(target.kind,target.rank,profile.level())'),
+('''	if wheel!=null: wheel.rotate_x(dt*.45)
+	var prev := actor''','''	if death_wait>0:
+		death_wait=maxf(0,death_wait-dt)
+		hero.rotation.z=lerpf(hero.rotation.z,1.25,dt*7)
+		if death_wait<=0:
+			hero.rotation.z=0
+			actor=START
+			hero.position=Ground.point(actor)
+			hp=profile.hp_max()
+			mp=profile.mana_max()
+			hud.feed.text="Стража вернула тебя к заставе."
+			save_hero()
+		return
+	if wheel!=null: wheel.rotate_x(dt*.45)
+	var prev := actor'''),
+('shield=maxf(0,shield-dt)\n\tif not axis.is_zero_approx():','''shield=maxf(0,shield-dt)
+	haste_time=maxf(0,haste_time-dt)
+	focus_time=maxf(0,focus_time-dt)
+	hurt_motion=maxf(0,hurt_motion-dt)
+	if auto_enabled and target!=null and pending=="": pending="hit"
+	var speed:=SPEED*(1.25 if haste_time>0 else 1.0)
+	if not axis.is_zero_approx():'''),
+('var delta := axis.rotated(-yaw)*SPEED*dt','var delta := axis.rotated(-yaw)*speed*dt'),
+('actor.distance_to(target.flat())<=REACH:\n\t\troute.clear()','actor.distance_to(target.flat())<=action_range(pending):\n\t\troute.clear()'),
+('''		elif attack_wait<=0:
+			flash("hit")
+			pending=""
+			attack(profile.damage())''','''		elif attack_wait<=0:
+			pending=""
+			attack(profile.damage())'''),
+('var travel := dt*SPEED','var travel := dt*speed'),
+('''	if not town:
+		for mob in mobs: mob.tick(dt,mob==target and engaged,actor)
+	if target!=null:
+		target_ring.position=target.position+Vector3.UP*.08
+		target_ring.show()
+		if engaged and actor.distance_to(target.flat())<=REACH and target.stun<=0:
+			hurt_wait-=dt
+			if hurt_wait<=0:
+				target.swing=.35
+				sound.effect("hurt")
+				contact(hero.position+Vector3.UP*.91,"hurt")
+				hurt_wait=1.55
+				var damage := maxi(1,3+target.rank*2-profile.defense())
+				hp-=maxi(1,ceili(damage*(.5 if shield>0 else 1.0)))
+				if hp<=0:
+					clear_target()
+					actor=START
+					hp=profile.hp_max()
+					mp=profile.mana_max()
+					hud.feed.text="Стража вернула тебя к заставе."''','''	if not town:
+		var in_combat:=false
+		for mob in mobs:
+			mob.tick(dt,mob==target and engaged,actor)
+			if mob.hp<=0 or not mob.aggro: continue
+			in_combat=true
+			if actor.distance_to(mob.flat())<=REACH and mob.stun<=0 and mob.attack_timer<=0:
+				mob.attack_timer=1.35 if mob.kind==1 else 1.85
+				mob.swing=.35
+				if rng.randf()<.12:
+					float_word(hero.position,"Уклонение",Color("#c4dedf"))
+					continue
+				sound.effect("hurt")
+				contact(hero.position+Vector3.UP*.91,"hurt")
+				hurt_motion=.22
+				var damage:=maxi(1,3+mob.rank*2+mob.kind-profile.defense())
+				hp-=maxi(1,ceili(damage*(.5 if shield>0 else 1.0)))
+				if hp<=0:
+					hp=0
+					clear_target()
+					for enemy in mobs: enemy.aggro=false
+					death_wait=1.1
+					update_ui()
+					return
+		if not in_combat and target==null: engaged=false
+	if target!=null:
+		target_ring.position=target.position+Vector3.UP*.08
+		target_ring.show()'''),
+('torso.rotation.x=.045*gait_blend','torso.rotation.x=.045*gait_blend+.18*sin(PI*hurt_motion/.22) if hurt_motion>0 else .045*gait_blend\n\tif swing>0: torso.rotation.y=.27*sin(PI*swing/.38)\n\telse: torso.rotation.y=0'),
+('if i==3 and swing>0: v=-1.65*sin(PI*swing/.38)','if swing>0 and i==3: v=-1.65*sin(PI*swing/.38)\n\t\tif swing>0 and i==2 and profile.mystic(): v=-1.35*sin(PI*swing/.38)'),
+('''	hud.radar.creatures.clear()
+	for mob in mobs:
+		if mob.hp>0: hud.radar.creatures.append(mob.flat())''','''	hud.radar.creatures.clear()
+	hud.radar.hostile.clear()
+	for mob in mobs:
+		if mob.hp>0:
+			if mob.hostile or mob.aggro: hud.radar.hostile.append(mob.flat())
+			else: hud.radar.creatures.append(mob.flat())'''),
+('''		hud.target_name.text="Выбери Корневика" if target==null else "Корневик · Ур. %d · %d/%d" % [target.rank,target.hp,target.max_hp]
+	for i in 7:''','''		hud.target_name.text="Выбери цель" if target==null else "%s · Ур. %d · %d/%d" % [Beast.NAMES[target.kind],target.rank,target.hp,target.max_hp]
+	hud.autoattack.modulate=Color("#ffe09b") if auto_enabled else Color.WHITE
+	hud.autoattack.visible=not town
+	hud.pickup_button.visible=not town
+	hud.target_button.visible=not town
+	hud.trainer_button.visible=near_trainer()
+	for i in 10:'''),
+('elif id=="hit": left=attack_wait','elif sk.has("item"): hint="×%d" % profile.inventory.get(sk.item,0)'),
+])
+p=root/"ford/world.gd"
+s=p.read_text(encoding="utf-8")
+s+='''
+func build_trainers() -> void:
+	var ix:=0
+	var spots: Array[Vector2]=[Vector2(169,2),Vector2(174,2),Vector2(180,2),Vector2(186,2),Vector2(191,2),Vector2(169,17),Vector2(175,17),Vector2(185,17),Vector2(191,17)]
+	for race in Hero.TREE:
+		for discipline in Hero.TREE[race]:
+			var spot:=spots[ix]
+			ix+=1
+			if not city_ground.legal(spot):
+				for offset in [Vector2(0,2),Vector2(0,-2),Vector2(2,0),Vector2(-2,0)]:
+					if city_ground.legal(spot+offset): spot+=offset;break
+			var npc:=preload("res://ford/models/warden.glb").instantiate() as Node3D
+			add_child(npc)
+			npc.position=Ground.point(spot)
+			npc.set_meta("discipline",discipline)
+			Looks.fit(npc,race,"male",ix%4)
+			var tag:=Label3D.new()
+			tag.text="Мастер: "+str(discipline)
+			tag.position.y=2.3
+			tag.font_size=38
+			tag.pixel_size=.007
+			tag.billboard=BaseMaterial3D.BILLBOARD_ENABLED
+			tag.modulate=Color("#ffdc91")
+			npc.add_child(tag)
+			npc.visible=town
+			trainers.append(npc)
+
+func near_trainer() -> bool:
+	if not town: return false
+	for npc in trainers:
+		if npc.get_meta("discipline")==profile.origin and actor.distance_to(Vector2(npc.position.x,npc.position.z))<=3.0: return true
+	return false
+
+func open_trainer() -> void:
+	if not near_trainer():
+		hud.feed.text="Найди в городе мастера: "+profile.origin
+		return
+	clear_target()
+	hud.show_book(profile,catalog,true)
+'''
+p.write_text(s,encoding="utf-8")
+# Death pose for enemies before hiding and respawn.
+patch("ford/creature.gd",[
+('''		respawn-=dt
+		if respawn<=0:
+			hp=max_hp;spoiled=false;stun=0;aggro=false;attack_timer=0;position=Ground.point(home);update_label();show()
+		return''','''		respawn-=dt
+		if respawn>11.5+kind*4:
+			rotation.z=lerpf(rotation.z,1.4,dt*9)
+		else: hide()
+		if respawn<=0:
+			rotation.z=0
+			hp=max_hp;spoiled=false;stun=0;aggro=false;attack_timer=0;position=Ground.point(home);update_label();show()
+		return'''),
+('respawn=12+kind*4;aggro=false;hide()','respawn=12+kind*4;aggro=false'),
+])
+patch("project.godot",[
+('config/version="0.9.1"','config/version="0.11.0"'),
+])
+patch("web/shell.html",[
+('PRE-ALPHA 0.10.2 · ONLINE TEST / OFFLINE','PRE-ALPHA 0.11 · ONLINE TEST / OFFLINE'),
+('1–7 — умения','1–0 — предметы и умения'),
+])
