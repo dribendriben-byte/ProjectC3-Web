@@ -80,7 +80,7 @@
   new MutationObserver(enableMenu).observe(cover,{attributes:true,attributeFilter:["hidden"]});
   function setMenuBusy(value){menuBusy=value;for(const el of modal.querySelectorAll("button,select"))el.disabled=value;}
   function showMenu(){
-    if(menuBusy||!cover.hidden)return;
+    if(menuBusy||!cover.hidden||!social.hidden)return;
     modal.hidden=false;by("c3-menu-mode").textContent=active?"ONLINE · "+(character?.name||""):"Офлайн · локальное сохранение";
     menuStatus(command?"":"Игровое меню ожидает подключения движка. Если не появится, обнови страницу.");for(const id of ["c3-quality","c3-sound","c3-save-now","c3-main-menu","c3-switch-account"])by(id).disabled=!command;by("c3-fullscreen").disabled=!by("fullscreen")||by("fullscreen").hidden;
     by("c3-resume").focus();
@@ -91,7 +91,7 @@
   by("c3-quality").onchange=()=>{command?.("quality",Number(by("c3-quality").value));};
   by("c3-sound").onchange=()=>{command?.("sound",by("c3-sound").value==="off");};
   by("c3-fullscreen").onclick=()=>by("fullscreen")?.click();
-  window.addEventListener("keydown",e=>{if(e.key!=="Escape"||cover.hidden!==true)return;e.preventDefault();e.stopImmediatePropagation();if(modal.hidden)showMenu();else hideMenu();},true);
+  window.addEventListener("keydown",e=>{if(e.key!=="Escape"||cover.hidden!==true)return;e.preventDefault();e.stopImmediatePropagation();if(!social.hidden){closeSocial();return;}if(modal.hidden)showMenu();else hideMenu();},true);
   const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function saveBeforeExit(){
     ack=null;command("save");
@@ -134,9 +134,124 @@
   by("c3-main-menu").onclick=()=>void menuAction("menu");
   by("c3-switch-account").onclick=()=>void menuAction("logout");
 
+
+  // v0.17: server-backed social panel; no legacy inventory or currency mutations.
+  const socialButton=document.createElement("button");
+  socialButton.id="c3-social-button";socialButton.type="button";socialButton.textContent="Чат / Группа";socialButton.hidden=true;
+  const social=document.createElement("div");social.id="c3-social";social.hidden=true;
+  social.innerHTML='<section role="dialog" aria-modal="true" aria-labelledby="c3-social-title"><header><h2 id="c3-social-title">Project C3 · Онлайн</h2><button id="c3-social-close" type="button" aria-label="Закрыть">×</button></header><nav><button data-tab="chat">Чат</button><button data-tab="party">Группа</button><button data-tab="training">Тренировка</button></nav><p id="c3-social-status" role="status" aria-live="polite"></p><div id="c3-social-chat"><div id="c3-chat-log" role="log" aria-live="off"></div><form id="c3-chat-form"><select id="c3-chat-channel"><option value="world">Общий</option><option value="party">Группа</option></select><input id="c3-chat-input" maxlength="200" placeholder="Сообщение..." autocomplete="off"><button type="submit">Отпр.</button></form></div><div id="c3-social-party" hidden><div id="c3-party-members"></div><div id="c3-party-invites"></div><div id="c3-party-players"></div><button id="c3-party-leave" hidden>Покинуть группу</button></div><div id="c3-social-training" hidden><h3>Общая тренировочная цель</h3><p>Подойди к стартовой заставе. Урон и HP определяются сервером. Без EXP и добычи.</p><div class="c3-hp"><div id="c3-training-hp"></div></div><p id="c3-training-detail">Загрузка...</p><button id="c3-training-hit">Ударить</button></div></section>';
+  document.body.append(socialButton,social);
+  const socialCss=document.createElement("style");
+  socialCss.textContent="#c3-menu-button{left:calc(50% + 45px)}#c3-social-button{position:fixed;top:max(43px,calc(env(safe-area-inset-top) + 35px));left:calc(50% - 65px);transform:translateX(-50%);z-index:4;width:auto;margin:0;padding:6px 10px;font-size:12px;background:#172823ed;color:#f2e7ca;border:1px solid #8a7754}#c3-social[hidden],#c3-social-button[hidden],#c3-social [hidden]{display:none!important}#c3-social{position:fixed;inset:0;z-index:7;display:grid;place-items:center;overflow:auto;touch-action:pan-y;padding:10px;background:#09120dcc}#c3-social section{width:min(560px,100%);max-height:100%;overflow:auto;background:#172720;border:1px solid #b89a65;border-radius:10px;padding:12px;color:#f2e7ca;box-sizing:border-box;font:14px system-ui}#c3-social header,#c3-social nav,#c3-social form,#c3-social .c3-party-row{display:flex;align-items:center;gap:6px}#c3-social header{justify-content:space-between}#c3-social h2{font-size:18px;margin:0}#c3-social h3{font-size:14px;margin:12px 0 6px}#c3-social button{font:13px system-ui;padding:8px;margin:3px 0;width:auto;border-radius:5px}#c3-social nav button{flex:1}#c3-social nav button.selected{background:#b4c38d;color:#172720}#c3-social p{font-size:12px;margin:6px 0;overflow-wrap:anywhere}#c3-social input,#c3-social select{min-width:0;padding:8px;background:#101b18;color:#f2e7ca;border:1px solid #677c64;border-radius:4px;font:16px system-ui}#c3-social input{flex:1}#c3-chat-log{height:clamp(90px,28vh,240px);overflow:auto;border:1px solid #526353;padding:8px;overflow-wrap:anywhere;white-space:pre-wrap}#c3-chat-log p{margin:0 0 5px}#c3-social .c3-party-row{border-bottom:1px solid #405646;justify-content:space-between;padding:4px 0}#c3-social-status{min-height:16px;color:#e9cf8c}#c3-social .c3-hp{height:18px;background:#442b2b;border:1px solid #99795b;border-radius:4px;overflow:hidden}#c3-training-hp{height:100%;background:#a75048;width:100%;transition:width .2s}";
+  document.head.append(socialCss);
+  let socialState=null,socialTab="chat",socialBusy=false,socialLast=0,readPromise=null;
+  const socialStatus=t=>by("c3-social-status").textContent=t;
+  function showSocialButton(){
+    socialButton.hidden=!active||!cover.hidden||blocked;
+  }
+  new MutationObserver(showSocialButton).observe(cover,{attributes:true,attributeFilter:["hidden"]});
+  function closeSocial(){social.hidden=true;by("canvas")?.focus();}
+  function showSocial(){
+    if(!active||!cover.hidden||blocked||!modal.hidden)return;
+    social.hidden=false;socialStatus("");void refreshSocial();
+  }
+  socialButton.onclick=showSocial;by("c3-social-close").onclick=closeSocial;
+  function chooseSocialTab(tab){
+    socialTab=tab;
+    for(const key of ["chat","party","training"])by("c3-social-"+key).hidden=key!==tab;
+    for(const button of social.querySelectorAll("nav button"))button.classList.toggle("selected",button.dataset.tab===tab);
+  }
+  for(const button of social.querySelectorAll("nav button"))button.onclick=()=>chooseSocialTab(button.dataset.tab);
+  chooseSocialTab("chat");
+  function row(parent,label,actions=[]){
+    const line=document.createElement("div");line.className="c3-party-row";
+    const text=document.createElement("span");text.textContent=label;line.append(text);
+    const buttons=document.createElement("div");line.append(buttons);
+    for(const [name,fn] of actions){
+      const b=document.createElement("button");b.type="button";b.textContent=name;b.onclick=fn;buttons.append(b);
+    }
+    parent.append(line);
+  }
+  function section(id,heading){
+    const node=by(id);node.replaceChildren();
+    const h=document.createElement("h3");h.textContent=heading;node.append(h);return node;
+  }
+  function renderSocial(state){
+    if(!state)return;
+    socialState=state;
+    socialButton.textContent=(state.invites?.length?"Группа ("+state.invites.length+")":"Чат / Группа");
+    showSocialButton();
+    if(social.hidden)return;
+    const chat=by("c3-chat-log"),atBottom=chat.scrollHeight-chat.scrollTop-chat.clientHeight<35;
+    chat.replaceChildren();
+    for(const m of state.messages||[]){
+      const p=document.createElement("p"),name=document.createElement("strong");
+      name.textContent=(m.channel==="party"?"[Группа] ":"[Мир] ")+m.name+": ";
+      name.style.color=m.channel==="party"?"#a8cbea":"#e7c883";
+      p.append(name,document.createTextNode(m.body));chat.append(p);
+    }
+    if(atBottom||!chat.scrollTop)chat.scrollTop=chat.scrollHeight;
+    const select=by("c3-chat-channel");select.options[1].disabled=!state.party;
+    if(!state.party&&select.value==="party")select.value="world";
+    const members=section("c3-party-members","Группа · "+(state.members?.length||0)+"/4");
+    if(!state.party)row(members,"Ты пока не в группе.");
+    for(const m of state.members||[])row(members,(m.id===state.leader?"★ ":"")+m.name+(m.online?" · онлайн":" · офлайн"));
+    by("c3-party-leave").hidden=!state.party;
+    const invites=section("c3-party-invites","Приглашения");
+    if(!state.invites?.length)row(invites,"Нет приглашений");
+    for(const i of state.invites||[])row(invites,i.from,[["Принять",()=>socialAction("accept",{invite:i.id})],["Отклонить",()=>socialAction("decline",{invite:i.id})]]);
+    const online=section("c3-party-players","Игроки онлайн");
+    if(!state.players?.length)row(online,"Других игроков пока нет");
+    const canInvite=!state.party||state.leader===state.me;
+    for(const p of state.players||[])row(online,p.name,canInvite&&!state.members?.some(m=>m.id===p.id)?[["Пригласить",()=>socialAction("invite",{target:p.id})]]:[]);
+    const t=state.training;
+    if(t){
+      by("c3-training-hp").style.width=Math.max(0,Math.min(100,t.hp/t.max_hp*100))+"%";
+      by("c3-training-detail").textContent="HP "+t.hp+"/"+t.max_hp+" · Побед всего: "+t.defeats+" · Твой урон: "+t.damage+" · Добивания: "+t.finishing_hits;
+      by("c3-training-hit").disabled=t.hp<=0||socialBusy;
+    }
+  }
+  async function refreshSocial(){
+    if(!active||blocked||exiting||!client||!cover.hidden||socialBusy||readPromise)return;
+    socialLast=Date.now();
+    readPromise=rpc("c3_social",{p_action:"state",p_payload:{}});
+    try{renderSocial(await readPromise);}
+    catch(e){if(!social.hidden)socialStatus("Связь: "+e.message);}
+    finally{readPromise=null;}
+  }
+  async function socialAction(action,payload={}){
+    if(socialBusy||!active||blocked||!client)return;
+    socialBusy=true;socialStatus("...");
+    for(const b of social.querySelectorAll("button:not(#c3-social-close)"))b.disabled=true;
+    try{
+      if(readPromise)try{await readPromise;}catch(_){}
+      const state=await rpc("c3_social",{p_action:action,p_payload:payload});
+      socialLast=Date.now();
+      socialStatus(action==="attack"?"Урон: "+(state.training?.last_damage||0):action==="invite"?"Приглашение отправлено.":"Готово.");
+      renderSocial(state);
+      return true;
+    }catch(e){socialStatus(e.message);return false;}
+    finally{
+      socialBusy=false;
+      for(const b of social.querySelectorAll("button"))b.disabled=false;
+      if(socialState?.training)by("c3-training-hit").disabled=socialState.training.hp<=0;
+    }
+  }
+  by("c3-chat-form").onsubmit=async e=>{
+    e.preventDefault();
+    const input=by("c3-chat-input"),body=input.value.trim();
+    if(!body)return;
+    if(await socialAction("chat",{channel:by("c3-chat-channel").value,body})&&input.value.trim()===body)input.value="";
+  };
+  by("c3-party-leave").onclick=()=>void socialAction("leave");
+  by("c3-training-hit").onclick=()=>void socialAction("attack");
+  setInterval(()=>{
+    if(active&&cover.hidden&&!blocked&&Date.now()-socialLast>(social.hidden?12000:3000))void refreshSocial();
+  },1000);
+
   window.C3Online={
     attachMenu:(callback,muted,quality)=>{command=callback;by('c3-sound').value=muted?'off':'on';by('c3-quality').value=String(quality);enableMenu();},
-    menuOpen:()=>!modal.hidden,
+    menuOpen:()=>!modal.hidden||!social.hidden,
     menuAck:(ok,message)=>{ack={ok:!!ok,message:String(message||'')};},
     character:()=>active?JSON.stringify(character):"",
     peers:()=>JSON.stringify(players),
