@@ -326,6 +326,7 @@ func _ready() -> void:
 	if bridge!=null:
 		bridge_callback=JavaScriptBridge.create_callback(web_command)
 		bridge.attach(bridge_callback)
+		if local_packet.get("progress",{}).is_empty():start_wakeup()
 ''')
 section("ford/world.gd","func save_hero() -> void:","func _camera_action",'''
 func apply_profile()->void:
@@ -380,6 +381,19 @@ func apply_profile()->void:
 static func starter_weapon(race:String,mystic:bool)->String:
 	if mystic:return "ng_staff"
 	return str({"Человек":"ng_sword","Эльф":"ng_sword","Тёмный эльф":"ng_dagger","Орк":"ng_axe","Гном":"ng_hammer"}.get(race,"ng_sword"))
+
+func start_wakeup()->void:
+	town_transition=true
+	hero.rotation.z=1.3
+	hud.veil.modulate.a=1.0
+	hud.veil.show()
+	var animation:=create_tween()
+	animation.tween_property(hud.veil,"modulate:a",0.0,1.3)
+	animation.parallel().tween_property(hero,"rotation:z",0.0,1.5)
+	animation.tween_callback(func():
+		hud.veil.hide()
+		town_transition=false
+		save_hero())
 
 func web_menu_open()->bool:
 	return bridge!=null and bool(bridge.menuOpen())
@@ -714,7 +728,7 @@ func attack(amount:int,kind:String="hit")->void:
 ''')
 section("ford/world.gd","func _physics_process(dt: float) -> void:","func update_ui()",'''
 func _physics_process(dt:float)->void:
-	if player_body==null:return
+	if player_body==null or town_transition:return
 	if hud.shade.visible or web_menu_open():
 		player_body.velocity=Vector3.ZERO
 		hud.stick.reset()
