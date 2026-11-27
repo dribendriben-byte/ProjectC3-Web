@@ -49,7 +49,7 @@ static func layer(parent:Node3D,name_:String,clear_mesh:bool=false)->Node3D:
 	if old!=null:
 		parent.remove_child(old)
 		old.queue_free()
-	if clear_mesh and parent is MeshInstance3D: parent.mesh=null
+	if clear_mesh and parent is MeshInstance3D: (parent as MeshInstance3D).mesh=null
 	var node:=Node3D.new()
 	node.name=name_
 	parent.add_child(node)
