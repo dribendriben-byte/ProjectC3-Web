@@ -55,7 +55,7 @@
       text.textContent=r.name+" · "+r.race+" · EXP "+(r.progress?.total_xp??1)+" · адена "+(r.progress?.adena??0)+" · "+(r.online?"ONLINE":"offline");
       button.textContent=r.banned?"Разблокировать":"Заблокировать";button.onclick=guarded(async()=>{if(!confirm(button.textContent+" "+r.name+"?"))return;await rpc("c3_gm_ban",{p_id:r.id,p_banned:!r.banned});by("c3gm").click();});line.append(text,button);box.append(line);}
   });
-  const banner=document.createElement("div");banner.hidden=true;banner.style.cssText="position:fixed;top:4px;left:4px;z-index:2;padding:4px 8px;background:#15221e;color:#e7d5a4;font:11px system-ui;pointer-events:none";document.body.append(banner);
+  const banner=document.createElement("div");banner.hidden=true;banner.style.cssText="position:fixed;top:78px;left:50%;transform:translateX(-50%);z-index:2;padding:3px 7px;border-radius:4px;background:#15221ed9;color:#e7d5a4;font:10px system-ui;pointer-events:none;white-space:nowrap";document.body.append(banner);
   function report(t){banner.hidden=!active;banner.textContent=t;}
   async function flush(){
     if(saveBusy||!pendingSave||!active||blocked)return;
@@ -73,16 +73,16 @@
   modal.innerHTML='<section role="dialog" aria-modal="true" aria-labelledby="c3-menu-title"><h2 id="c3-menu-title">Игровое меню</h2><p id="c3-menu-mode"></p><div class="c3-menu-grid"><label>Графика<select id="c3-quality"><option value="0">Низкая</option><option value="1">Средняя</option><option value="2">Высокая</option></select></label><label>Звук<select id="c3-sound"><option value="on">Включён</option><option value="off">Выключен</option></select></label><button id="c3-fullscreen">Полный экран</button><button id="c3-save-now">Сохранить</button></div><p id="c3-menu-status" role="status" aria-live="polite"></p><button id="c3-resume">Продолжить игру</button><button id="c3-main-menu">Выйти в главное меню</button><button id="c3-switch-account">Выйти из аккаунта / сменить аккаунт</button></section>';
   document.body.append(menuButton,modal);
   const menuStyle=document.createElement("style");
-  menuStyle.textContent="#c3-menu-button{position:fixed;top:max(8px,env(safe-area-inset-top));left:calc(50% + 86px);z-index:2;width:auto;margin:0;padding:7px 12px;font-size:12px;background:#172823ed;color:#f2e7ca;border:1px solid #8a7754}#c3-menu-button[hidden],#c3-game-menu[hidden]{display:none}#c3-game-menu{position:fixed;inset:0;z-index:6;background:#09120dcc;display:grid;place-items:center;overflow:auto;touch-action:pan-y;padding:12px}#c3-game-menu section{width:min(440px,100%);max-height:100%;overflow:auto;padding:16px;background:#172720;border:1px solid #b89a65;border-radius:12px;box-shadow:0 12px 40px #0009}#c3-game-menu h2{margin:0 0 6px}#c3-game-menu p{margin:5px 0;font-size:12px}#c3-game-menu button{font-size:13px;margin:4px 0;padding:9px 10px}#c3-game-menu select{display:block;width:100%;font-size:14px;padding:8px;margin:5px 0;border:1px solid #677c64;background:#101b18;color:#f2e7ca;border-radius:5px}#c3-game-menu label{font-size:12px;color:#c5d0c6}.c3-menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}#c3-menu-status{min-height:18px;overflow-wrap:anywhere}#c3-resume{background:#a9bf88}#c3-switch-account{background:#795d47;color:#fff4db}";
+  menuStyle.textContent="#c3-menu-button{position:fixed;top:max(43px,calc(env(safe-area-inset-top) + 35px));left:50%;transform:translateX(-50%);z-index:4;width:auto;margin:0;padding:6px 12px;font-size:13px;background:#172823ed;color:#f2e7ca;border:1px solid #8a7754}#c3-menu-button[hidden],#c3-game-menu[hidden]{display:none}#c3-game-menu{position:fixed;inset:0;z-index:6;background:#09120dcc;display:grid;place-items:center;overflow:auto;touch-action:pan-y;padding:12px}#c3-game-menu section{width:min(440px,100%);max-height:100%;overflow:auto;padding:16px;background:#172720;border:1px solid #b89a65;border-radius:12px;box-shadow:0 12px 40px #0009}#c3-game-menu h2{margin:0 0 6px}#c3-game-menu p{margin:5px 0;font-size:12px}#c3-game-menu button{font-size:13px;margin:4px 0;padding:9px 10px}#c3-game-menu select{display:block;width:100%;font-size:14px;padding:8px;margin:5px 0;border:1px solid #677c64;background:#101b18;color:#f2e7ca;border-radius:5px}#c3-game-menu label{font-size:12px;color:#c5d0c6}.c3-menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}#c3-menu-status{min-height:18px;overflow-wrap:anywhere}#c3-resume{background:#a9bf88}#c3-switch-account{background:#795d47;color:#fff4db}";
   document.head.append(menuStyle);
   const menuStatus=t=>by("c3-menu-status").textContent=t;
-  function enableMenu(){menuButton.hidden=cover.hidden!==true||!command;}
+  function enableMenu(){menuButton.hidden=cover.hidden!==true;}
   new MutationObserver(enableMenu).observe(cover,{attributes:true,attributeFilter:["hidden"]});
   function setMenuBusy(value){menuBusy=value;for(const el of modal.querySelectorAll("button,select"))el.disabled=value;}
   function showMenu(){
-    if(!command||menuBusy||!cover.hidden)return;
+    if(menuBusy||!cover.hidden)return;
     modal.hidden=false;by("c3-menu-mode").textContent=active?"ONLINE · "+(character?.name||""):"Офлайн · локальное сохранение";
-    menuStatus("");by("c3-fullscreen").disabled=!by("fullscreen")||by("fullscreen").hidden;
+    menuStatus(command?"":"Игровое меню ожидает подключения движка. Если не появится, обнови страницу.");for(const id of ["c3-quality","c3-sound","c3-save-now","c3-main-menu","c3-switch-account"])by(id).disabled=!command;by("c3-fullscreen").disabled=!by("fullscreen")||by("fullscreen").hidden;
     by("c3-resume").focus();
   }
   function hideMenu(){if(menuBusy)return;modal.hidden=true;by("canvas").focus();}
@@ -91,7 +91,7 @@
   by("c3-quality").onchange=()=>{command?.("quality",Number(by("c3-quality").value));};
   by("c3-sound").onchange=()=>{command?.("sound",by("c3-sound").value==="off");};
   by("c3-fullscreen").onclick=()=>by("fullscreen")?.click();
-  window.addEventListener("keydown",e=>{if(e.key!=="Escape"||cover.hidden!==true||!command)return;e.preventDefault();e.stopImmediatePropagation();if(modal.hidden)showMenu();else hideMenu();},true);
+  window.addEventListener("keydown",e=>{if(e.key!=="Escape"||cover.hidden!==true)return;e.preventDefault();e.stopImmediatePropagation();if(modal.hidden)showMenu();else hideMenu();},true);
   const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   async function saveBeforeExit(){
     ack=null;command("save");
