@@ -225,7 +225,7 @@ jobs:
           godot --headless --verbose --path "$project" --export-release Web "$PWD/site/index.html"
           for f in index.html index.js index.wasm index.pck; do test -s "site/$f"; done
           touch site/.nojekyll
-      - name: Build separate closed online alpha v0.16
+      - name: Build separate closed online alpha v0.17
         run: |
           set -euo pipefail
           project="$PWD/source/ProjectC3_Web_v0.9/Ford3D"
@@ -241,6 +241,8 @@ jobs:
           python3 online/classes_014.py "$alpha"
           python3 online/world_015.py "$alpha"
           python3 online/quests_016.py "$alpha"
+          sed -i 's/config\/version="0.16.0"/config\/version="0.17.0"/' "$alpha/project.godot"
+          sed -i 's/PRE-ALPHA 0.16/PRE-ALPHA 0.17/g; s/c3-config-0160.js/c3-config-0170.js/g; s/c3-online-0160.js/c3-online-0170.js/g' "$alpha/web/shell.html"
           node --check online/bridge.js
           node --check online/config.js
           godot --headless --path "$alpha" --editor --import 2>&1 | tee /tmp/c3-alpha-import.log
@@ -258,13 +260,13 @@ jobs:
           grep -F "C3 quest smoke test passed" /tmp/c3-quests-test.log
           godot --headless --path "$alpha" --quit-after 15 2>&1 | tee /tmp/c3-alpha-startup.log
           if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/c3-alpha-startup.log; then exit 1; fi
-          godot --headless --path "$alpha" --export-release Web "$PWD/site/alpha/c3-alpha-0160.html" 2>&1 | tee /tmp/c3-alpha-export.log
+          godot --headless --path "$alpha" --export-release Web "$PWD/site/alpha/c3-alpha-0170.html" 2>&1 | tee /tmp/c3-alpha-export.log
           if grep -E 'SCRIPT ERROR:|Parse Error:|Compile Error:' /tmp/c3-alpha-export.log; then exit 1; fi
-          cp "$PWD/site/alpha/c3-alpha-0160.html" "$PWD/site/alpha/index.html"
-          cp online/bridge.js "$PWD/site/alpha/c3-online-0160.js"
-          cp online/config.js "$PWD/site/alpha/c3-config-0160.js"
-          for f in index.html c3-alpha-0160.js c3-alpha-0160.wasm c3-alpha-0160.pck c3-online-0160.js c3-config-0160.js; do test -s "site/alpha/$f"; done
-          grep -F 'c3-online-0160.js' site/alpha/index.html
+          cp "$PWD/site/alpha/c3-alpha-0170.html" "$PWD/site/alpha/index.html"
+          cp online/bridge.js "$PWD/site/alpha/c3-online-0170.js"
+          cp online/config.js "$PWD/site/alpha/c3-config-0170.js"
+          for f in index.html c3-alpha-0170.js c3-alpha-0170.wasm c3-alpha-0170.pck c3-online-0170.js c3-config-0170.js; do test -s "site/alpha/$f"; done
+          grep -F 'c3-online-0170.js' site/alpha/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
