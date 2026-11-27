@@ -225,7 +225,7 @@ jobs:
           godot --headless --verbose --path "$project" --export-release Web "$PWD/site/index.html"
           for f in index.html index.js index.wasm index.pck; do test -s "site/$f"; done
           touch site/.nojekyll
-      - name: Build separate closed online alpha v0.11
+      - name: Build separate closed online alpha v0.12
         run: |
           set -euo pipefail
           project="$PWD/source/ProjectC3_Web_v0.9/Ford3D"
@@ -233,23 +233,26 @@ jobs:
           mkdir -p "$alpha" "$PWD/site/alpha"
           cp -a "$project/." "$alpha/"
           rm -rf "$alpha/.godot"
-          python3 -m py_compile online/integrate.py online/gameplay_011.py
+          python3 -m py_compile online/integrate.py online/gameplay_011.py online/equipment_012.py
           python3 online/integrate.py "$alpha"
           python3 online/gameplay_011.py "$alpha"
+          python3 online/equipment_012.py "$alpha"
           node --check online/bridge.js
           node --check online/config.js
           godot --headless --path "$alpha" --editor --import 2>&1 | tee /tmp/c3-alpha-import.log
           godot --headless --path "$alpha" --check-only --script res://ford/world.gd 2>&1 | tee /tmp/c3-alpha-check.log
           if grep -E 'SCRIPT ERROR:|Parse Error:|Compile Error:' /tmp/c3-alpha-import.log /tmp/c3-alpha-check.log; then exit 1; fi
+          godot --headless --path "$alpha" --script res://equipment_test.gd 2>&1 | tee /tmp/c3-equipment-test.log
+          grep -F "C3 equipment smoke test passed" /tmp/c3-equipment-test.log
           godot --headless --path "$alpha" --quit-after 15 2>&1 | tee /tmp/c3-alpha-startup.log
           if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/c3-alpha-startup.log; then exit 1; fi
-          godot --headless --path "$alpha" --export-release Web "$PWD/site/alpha/c3-alpha-0110.html" 2>&1 | tee /tmp/c3-alpha-export.log
+          godot --headless --path "$alpha" --export-release Web "$PWD/site/alpha/c3-alpha-0120.html" 2>&1 | tee /tmp/c3-alpha-export.log
           if grep -E 'SCRIPT ERROR:|Parse Error:|Compile Error:' /tmp/c3-alpha-export.log; then exit 1; fi
-          cp "$PWD/site/alpha/c3-alpha-0110.html" "$PWD/site/alpha/index.html"
-          cp online/bridge.js "$PWD/site/alpha/c3-online-0110.js"
-          cp online/config.js "$PWD/site/alpha/c3-config-0110.js"
-          for f in index.html c3-alpha-0110.js c3-alpha-0110.wasm c3-alpha-0110.pck c3-online-0110.js c3-config-0110.js; do test -s "site/alpha/$f"; done
-          grep -F 'c3-online-0110.js' site/alpha/index.html
+          cp "$PWD/site/alpha/c3-alpha-0120.html" "$PWD/site/alpha/index.html"
+          cp online/bridge.js "$PWD/site/alpha/c3-online-0120.js"
+          cp online/config.js "$PWD/site/alpha/c3-config-0120.js"
+          for f in index.html c3-alpha-0120.js c3-alpha-0120.wasm c3-alpha-0120.pck c3-online-0120.js c3-config-0120.js; do test -s "site/alpha/$f"; done
+          grep -F 'c3-online-0120.js' site/alpha/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
