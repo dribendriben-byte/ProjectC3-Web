@@ -64,12 +64,85 @@
     catch(e){if(!pendingSave)pendingSave=args;report("Ошибка облачного сохранения");if(e.message.includes("unavailable")){blocked=true;report("Доступ прекращён · обнови страницу");}}
     finally{saveBusy=false;}
   }
+
+  // In-game settings and explicit save-before-exit.
+  let command=null, ack=null, exiting=false, menuBusy=false;
+  const menuButton=document.createElement("button");
+  menuButton.id="c3-menu-button";menuButton.type="button";menuButton.textContent="⚙ Меню";menuButton.hidden=true;
+  const modal=document.createElement("div");modal.id="c3-game-menu";modal.hidden=true;
+  modal.innerHTML='<section role="dialog" aria-modal="true" aria-labelledby="c3-menu-title"><h2 id="c3-menu-title">Игровое меню</h2><p id="c3-menu-mode"></p><div class="c3-menu-grid"><label>Графика<select id="c3-quality"><option value="0">Низкая</option><option value="1">Средняя</option><option value="2">Высокая</option></select></label><label>Звук<select id="c3-sound"><option value="on">Включён</option><option value="off">Выключен</option></select></label><button id="c3-fullscreen">Полный экран</button><button id="c3-save-now">Сохранить</button></div><p id="c3-menu-status" role="status" aria-live="polite"></p><button id="c3-resume">Продолжить игру</button><button id="c3-main-menu">Выйти в главное меню</button><button id="c3-switch-account">Выйти из аккаунта / сменить аккаунт</button></section>';
+  document.body.append(menuButton,modal);
+  const menuStyle=document.createElement("style");
+  menuStyle.textContent="#c3-menu-button{position:fixed;top:max(8px,env(safe-area-inset-top));left:calc(50% + 86px);z-index:2;width:auto;margin:0;padding:7px 12px;font-size:12px;background:#172823ed;color:#f2e7ca;border:1px solid #8a7754}#c3-menu-button[hidden],#c3-game-menu[hidden]{display:none}#c3-game-menu{position:fixed;inset:0;z-index:6;background:#09120dcc;display:grid;place-items:center;overflow:auto;touch-action:pan-y;padding:12px}#c3-game-menu section{width:min(440px,100%);max-height:100%;overflow:auto;padding:16px;background:#172720;border:1px solid #b89a65;border-radius:12px;box-shadow:0 12px 40px #0009}#c3-game-menu h2{margin:0 0 6px}#c3-game-menu p{margin:5px 0;font-size:12px}#c3-game-menu button{font-size:13px;margin:4px 0;padding:9px 10px}#c3-game-menu select{display:block;width:100%;font-size:14px;padding:8px;margin:5px 0;border:1px solid #677c64;background:#101b18;color:#f2e7ca;border-radius:5px}#c3-game-menu label{font-size:12px;color:#c5d0c6}.c3-menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}#c3-menu-status{min-height:18px;overflow-wrap:anywhere}#c3-resume{background:#a9bf88}#c3-switch-account{background:#795d47;color:#fff4db}";
+  document.head.append(menuStyle);
+  const menuStatus=t=>by("c3-menu-status").textContent=t;
+  function enableMenu(){menuButton.hidden=cover.hidden!==true||!command;}
+  new MutationObserver(enableMenu).observe(cover,{attributes:true,attributeFilter:["hidden"]});
+  function setMenuBusy(value){menuBusy=value;for(const el of modal.querySelectorAll("button,select"))el.disabled=value;}
+  function showMenu(){
+    if(!command||menuBusy||!cover.hidden)return;
+    modal.hidden=false;by("c3-menu-mode").textContent=active?"ONLINE · "+(character?.name||""):"Офлайн · локальное сохранение";
+    menuStatus("");by("c3-fullscreen").disabled=!by("fullscreen")||by("fullscreen").hidden;
+    by("c3-resume").focus();
+  }
+  function hideMenu(){if(menuBusy)return;modal.hidden=true;by("canvas").focus();}
+  menuButton.onclick=showMenu;
+  by("c3-resume").onclick=hideMenu;
+  by("c3-quality").onchange=()=>{command?.("quality",Number(by("c3-quality").value));};
+  by("c3-sound").onchange=()=>{command?.("sound",by("c3-sound").value==="off");};
+  by("c3-fullscreen").onclick=()=>by("fullscreen")?.click();
+  window.addEventListener("keydown",e=>{if(e.key!=="Escape"||cover.hidden!==true||!command)return;e.preventDefault();e.stopImmediatePropagation();if(modal.hidden)showMenu();else hideMenu();},true);
+  const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  async function saveBeforeExit(){
+    ack=null;command("save");
+    // Godot callback submits a fresh snapshot; wait for its acknowledgement.
+    for(let i=0;ack===null&&i<30;i++)await delay(100);
+    if(!ack?.ok)throw Error(ack?.message||"Игра не подтвердила сохранение.");
+    if(active){
+      // Existing saves are serialized; don't leave until the last snapshot is acknowledged.
+      const end=Date.now()+15000;
+      while((pendingSave||saveBusy)&&Date.now()<end){
+        if(blocked)throw Error("Доступ к персонажу прекращён.");
+        if(!saveBusy&&pendingSave)void flush();
+        await delay(350);
+      }
+      if(pendingSave||saveBusy||blocked)throw Error("Облачное сохранение не подтверждено. Повтори попытку.");
+    }
+  }
+  async function menuAction(action){
+    if(menuBusy||!command)return;
+    setMenuBusy(true);exiting=action!=="save";menuStatus("Сохранение…");
+    try{
+      await saveBeforeExit();
+      menuStatus(active?"Прогресс сохранён в облаке.":"Локальный прогресс записан.");
+      if(action==="save")return;
+      if(active){
+        const end=Date.now()+5000;
+        while(busy&&Date.now()<end)await delay(100);
+        if(busy)throw Error("Сервер ещё отвечает. Повтори выход.");
+        await rpc("c3_leave");
+      }
+      if(action==="logout"){
+        if(!client)throw Error("Сервис аккаунтов ещё не подключён.");
+        const {error}=await client.auth.signOut({scope:"local"});if(error)throw error;
+      }
+      active=false;location.reload();
+    }catch(e){menuStatus(e.message||"Не удалось сохранить. Попробуй ещё раз.");}
+    finally{exiting=false;setMenuBusy(false);}
+  }
+  by("c3-save-now").onclick=()=>void menuAction("save");
+  by("c3-main-menu").onclick=()=>void menuAction("menu");
+  by("c3-switch-account").onclick=()=>void menuAction("logout");
+
   window.C3Online={
+    attachMenu:(callback,muted,quality)=>{command=callback;by('c3-sound').value=muted?'off':'on';by('c3-quality').value=String(quality);enableMenu();},
+    menuOpen:()=>!modal.hidden,
+    menuAck:(ok,message)=>{ack={ok:!!ok,message:String(message||'')};},
     character:()=>active?JSON.stringify(character):"",
     peers:()=>JSON.stringify(players),
     blocked:()=>blocked,
     save:(progress,region,x,z)=>{if(active&&!blocked){try{pendingSave={p_progress:JSON.parse(progress),p_region:region,p_x:x,p_z:z};void flush();}catch(e){report("Ошибка формата сохранения");}}},
-    tick:async(region,x,z,heading)=>{if(!active||busy||blocked)return;busy=true;try{players=await rpc("c3_world_tick",{p_region:region,p_x:x,p_z:z,p_heading:heading});report("ONLINE · рядом "+players.length+(pendingSave?" · сохранение…":""));}catch(e){players=[];report("Связь потеряна");if(e.message.includes("unavailable")){blocked=true;report("Доступ прекращён · обнови страницу");}}finally{busy=false;}}
+    tick:async(region,x,z,heading)=>{if(!active||busy||blocked||exiting)return;busy=true;try{players=await rpc("c3_world_tick",{p_region:region,p_x:x,p_z:z,p_heading:heading});report("ONLINE · рядом "+players.length+(pendingSave?" · сохранение…":""));}catch(e){players=[];report("Связь потеряна");if(e.message.includes("unavailable")){blocked=true;report("Доступ прекращён · обнови страницу");}}finally{busy=false;}}
   };
   setInterval(flush,3000);
   window.addEventListener("pagehide",()=>{if(active&&!blocked){void flush();void rpc("c3_leave").catch(()=>{});}});
