@@ -225,7 +225,7 @@ jobs:
           godot --headless --verbose --path "$project" --export-release Web "$PWD/site/index.html"
           for f in index.html index.js index.wasm index.pck; do test -s "site/$f"; done
           touch site/.nojekyll
-      - name: Build separate closed online alpha v0.10.1
+      - name: Build separate closed online alpha v0.10.2
         run: |
           set -euo pipefail
           project="$PWD/source/ProjectC3_Web_v0.9/Ford3D"
@@ -239,12 +239,13 @@ jobs:
           godot --headless --path "$alpha" --editor --import 2>&1 | tee /tmp/c3-alpha-import.log
           godot --headless --path "$alpha" --check-only --script res://ford/world.gd 2>&1 | tee /tmp/c3-alpha-check.log
           if grep -E 'SCRIPT ERROR:|Parse Error:|Compile Error:' /tmp/c3-alpha-import.log /tmp/c3-alpha-check.log; then exit 1; fi
-          godot --headless --path "$alpha" --export-release Web "$PWD/site/alpha/index.html" 2>&1 | tee /tmp/c3-alpha-export.log
+          godot --headless --path "$alpha" --export-release Web "$PWD/site/alpha/c3-alpha-0102.html" 2>&1 | tee /tmp/c3-alpha-export.log
           if grep -E 'SCRIPT ERROR:|Parse Error:|Compile Error:' /tmp/c3-alpha-export.log; then exit 1; fi
-          cp online/bridge.js "$PWD/site/alpha/c3-online.js"
-          cp online/config.js "$PWD/site/alpha/c3-config.js"
-          for f in index.html index.js index.wasm index.pck c3-online.js c3-config.js; do test -s "site/alpha/$f"; done
-          grep -F 'c3-online.js' site/alpha/index.html
+          cp "$PWD/site/alpha/c3-alpha-0102.html" "$PWD/site/alpha/index.html"
+          cp online/bridge.js "$PWD/site/alpha/c3-online-0102.js"
+          cp online/config.js "$PWD/site/alpha/c3-config-0102.js"
+          for f in index.html c3-alpha-0102.js c3-alpha-0102.wasm c3-alpha-0102.pck c3-online-0102.js c3-config-0102.js; do test -s "site/alpha/$f"; done
+          grep -F 'c3-online-0102.js' site/alpha/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
