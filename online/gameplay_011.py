@@ -193,32 +193,118 @@ static func piece(parent: Node3D, at: Vector3, extent: Vector3, tint: Color, bal
 	part.scale=extent
 	return part
 
+static func taper(parent: Node3D, at: Vector3, top: float, bottom: float, height: float, tint: Color, depth: float=1.0) -> MeshInstance3D:
+	var mesh:=CylinderMesh.new()
+	mesh.top_radius=top
+	mesh.bottom_radius=bottom
+	mesh.height=height
+	mesh.radial_segments=8
+	var material:=StandardMaterial3D.new()
+	material.albedo_color=tint
+	material.roughness=1.0
+	mesh.material=material
+	var part:=MeshInstance3D.new()
+	part.mesh=mesh
+	parent.add_child(part)
+	part.position=at
+	part.scale.z=depth
+	return part
+
+static func layer(parent: Node3D, tag: String) -> Node3D:
+	var old:=parent.get_node_or_null(tag)
+	if old!=null:
+		parent.remove_child(old)
+		old.queue_free()
+	if parent is MeshInstance3D: parent.mesh=null
+	var result:=Node3D.new()
+	result.name=tag
+	parent.add_child(result)
+	return result
+
 static func fit(model: Node3D,race: String,gender: String,style: int=0) -> void:
 	var body:=model.find_child("Body",true,false) as Node3D
 	if body==null: return
-	var old:=body.get_node_or_null("RaceDetails")
-	if old!=null: body.remove_child(old); old.queue_free()
-	var detail:=Node3D.new()
-	detail.name="RaceDetails"
-	body.add_child(detail)
-	var proportions: Dictionary={"Человек":Vector3(.92,1.12,.91),"Эльф":Vector3(.79,1.18,.83),"Тёмный эльф":Vector3(.82,1.15,.84),"Орк":Vector3(1.21,1.18,1.15),"Гном":Vector3(1.06,.87,1.04)}
+	var detail:=layer(body,"RaceDetails")
+	var proportions: Dictionary={"Человек":Vector3(.92,1.12,.91),"Эльф":Vector3(.77,1.22,.81),"Тёмный эльф":Vector3(.82,1.18,.83),"Орк":Vector3(1.23,1.20,1.16),"Гном":Vector3(1.08,.85,1.05)}
+	var skins: Dictionary={"Человек":Color("#d6aa83"),"Эльф":Color("#e2bea1"),"Тёмный эльф":Color("#8c7c9e"),"Орк":Color("#819069"),"Гном":Color("#c79a77")}
+	var outfits: Dictionary={"Человек":Color("#42637a"),"Эльф":Color("#526f4c"),"Тёмный эльф":Color("#504361"),"Орк":Color("#80543d"),"Гном":Color("#936c3f")}
+	var trim: Color=Color("#b9aa89")
+	var skin: Color=skins.get(race,skins["Человек"])
+	var cloth: Color=outfits.get(race,outfits["Человек"])
+	cloth=cloth.lightened(float(clampi(style,0,3))*.055)
+	var leather:=Color("#513a2e")
+	var hair_colors: Array[Color]=[Color("#46302b"),Color("#c1a06e"),Color("#8c4b35"),Color("#d4d2c9")]
+	var hair: Color=hair_colors[clampi(style,0,3)]
+	if race=="Тёмный эльф": hair=hair.lightened(.3)
+	var female:=gender=="female"
 	model.scale=proportions.get(race,Vector3.ONE)
-	if gender=="female": model.scale*=Vector3(.9,1.03,.9)
-	var color: Color={"Человек":Color("#56758d"),"Эльф":Color("#65845c"),"Тёмный эльф":Color("#645678"),"Орк":Color("#876447"),"Гном":Color("#9a7951")}.get(race,Color("#56758d"))
-	color=color.lightened(.08*clampi(style,0,3))
-	piece(detail,Vector3(0,1.18,-.34),Vector3(.72,.76,.10),color)
-	piece(detail,Vector3(0,1.02,.37),Vector3(.56,.13,.06),color.lightened(.18))
+	if female: model.scale*=Vector3(.91,1.02,.92)
+	# Torso, layered cloth, belt and shoulders. The original joints remain animated.
+	taper(detail,Vector3(0,1.15,0),.37,.28,.61,cloth,.72)
+	taper(detail,Vector3(0,.88,0),.27,.39,.27,cloth.darkened(.13),.79)
+	taper(detail,Vector3(0,.98,0),.30,.30,.095,leather,.8)
+	piece(detail,Vector3(0,.98,.25),Vector3(.12,.10,.045),trim)
+	piece(detail,Vector3(0,1.25,.25),Vector3(.07,.34,.045),trim.darkened(.12))
+	for side in [-1,1]:
+		var lapel:=piece(detail,Vector3(side*.15,1.39,.22),Vector3(.10,.24,.055),trim)
+		lapel.rotation.z=side*.50
+		piece(detail,Vector3(side*.32,1.42,.01),Vector3(.27,.20,.38),cloth.lightened(.18),true)
+	# The skirt panels move with the torso, leaving boots/feet separately articulated.
+	if female:
+		taper(detail,Vector3(0,.76,0),.28,.43,.43,cloth,.82)
+		piece(detail,Vector3(0,.64,-.29),Vector3(.64,.37,.075),cloth.darkened(.15))
+	else:
+		piece(detail,Vector3(0,.86,.27),Vector3(.25,.30,.09),cloth.darkened(.12))
 	if race in ["Эльф","Тёмный эльф"]:
-		var skin:=Color("#cba58b") if race=="Эльф" else Color("#9181a4")
-		for side in [-1,1]:
-			var ear:=piece(detail,Vector3(side*.35,1.82,.03),Vector3(.14,.37,.11),skin,true)
-			ear.rotation.z=-side*.65
+		piece(detail,Vector3(0,1.13,-.29),Vector3(.58,.68,.09),cloth.darkened(.20))
 	elif race=="Орк":
-		for side in [-1,1]: piece(detail,Vector3(side*.36,1.44,.05),Vector3(.31,.22,.38),Color("#705e46"),true)
-	if gender=="female":
-		var hair:=Color("#6b432f") if style%2==0 else Color("#d2b579")
-		piece(detail,Vector3(0,1.57,-.31),Vector3(.52,.76,.18),hair,true)
-		piece(detail,Vector3(0,.82,-.26),Vector3(.69,.60,.14),color)
+		for side in [-1,1]:
+			piece(detail,Vector3(side*.33,1.43,.04),Vector3(.32,.23,.41),Color("#8c7761"),true)
+	# Bare, expressive head; no shared helmet.
+	taper(detail,Vector3(0,1.51,0),.12,.15,.17,skin,.94)
+	piece(detail,Vector3(0,1.77,.015),Vector3(.45,.51,.44),skin,true)
+	piece(detail,Vector3(0,1.69,.06),Vector3(.33,.25,.35),skin,true)
+	piece(detail,Vector3(0,1.75,.237),Vector3(.08,.11,.08),skin.lightened(.06),true)
+	for side in [-1,1]:
+		piece(detail,Vector3(side*.106,1.81,.215),Vector3(.087,.043,.033),Color("#eee5d4"),true)
+		piece(detail,Vector3(side*.106,1.81,.239),Vector3(.039,.039,.018),Color("#394745"),true)
+		var brow:=piece(detail,Vector3(side*.109,1.864,.212),Vector3(.103,.024,.027),hair)
+		brow.rotation.z=side*.10
+		var ear:=piece(detail,Vector3(side*(.29 if race in ["Эльф","Тёмный эльф"] else .22),1.80,.0),Vector3(.14,.31,.12) if race in ["Эльф","Тёмный эльф"] else Vector3(.10,.15,.10),skin,true)
+		if race in ["Эльф","Тёмный эльф"]: ear.rotation.z=-side*.64
+	piece(detail,Vector3(0,1.67,.218),Vector3(.11,.022,.025),skin.darkened(.30))
+	piece(detail,Vector3(0,1.975,-.01),Vector3(.48,.22,.46),hair,true)
+	piece(detail,Vector3(0,1.84,-.16),Vector3(.44,.38,.20),hair,true)
+	if female or race in ["Эльф","Тёмный эльф"]:
+		for side in [-1,1]:
+			piece(detail,Vector3(side*.19,1.67,-.11),Vector3(.14,.53,.24),hair,true)
+		piece(detail,Vector3(0,1.49,-.25),Vector3(.46,.69,.19),hair,true)
+	elif style%2==1:
+		var lock:=piece(detail,Vector3(-.14,1.96,.13),Vector3(.20,.20,.25),hair,true)
+		lock.rotation.z=.35
+	if race=="Гном" and not female:
+		piece(detail,Vector3(0,1.59,.18),Vector3(.34,.36,.25),hair,true)
+		piece(detail,Vector3(0,1.70,.23),Vector3(.31,.09,.11),hair,true)
+	elif race=="Орк":
+		for side in [-1,1]:
+			var tusk:=taper(detail,Vector3(side*.12,1.69,.225),0.012,.045,.15,Color("#eee0b9"),.8)
+			tusk.rotation.z=-side*.12
+	# Separate meshes on the existing four animation pivots.
+	for side in ["LegL","LegR","ArmL","ArmR"]:
+		var joint:=model.find_child(side,true,false) as Node3D
+		if joint==null: continue
+		var gear:=layer(joint,"RaceSkin")
+		if side.begins_with("Leg"):
+			taper(gear,Vector3(0,-.20,0),.14,.11,.40,cloth.darkened(.24),.83)
+			taper(gear,Vector3(0,-.56,.015),.12,.14,.33,leather,.95)
+			piece(gear,Vector3(0,-.735,.07),Vector3(.29,.15,.37),leather,true)
+			piece(gear,Vector3(0,-.42,.13),Vector3(.22,.07,.07),trim.darkened(.28))
+		else:
+			taper(gear,Vector3(0,-.15,0),.125,.105,.30,cloth,.91)
+			taper(gear,Vector3(0,-.40,0),.10,.09,.22,skin,.88)
+			piece(gear,Vector3(0,-.53,.015),Vector3(.19,.20,.19),skin,true)
+			if not female or race=="Орк":
+				taper(gear,Vector3(0,-.33,0),.115,.115,.15,leather,.95)
 ''',encoding="utf-8")
 # Use actual 3D models with distinct silhouettes for three enemy families.
 (root/"ford/creature.gd").write_text('''extends Node3D
@@ -663,7 +749,7 @@ s=p.read_text(encoding="utf-8")
 s+='''
 func build_trainers() -> void:
 	var ix:=0
-	var spots: Array[Vector2]=[Vector2(169,2),Vector2(174,2),Vector2(180,2),Vector2(186,2),Vector2(191,2),Vector2(169,17),Vector2(175,17),Vector2(185,17),Vector2(191,17)]
+	var spots: Array[Vector2]=[Vector2(169,6),Vector2(174,6),Vector2(180,6),Vector2(186,6),Vector2(191,6),Vector2(169,17),Vector2(175,17),Vector2(185,17),Vector2(191,17)]
 	for race in Hero.TREE:
 		for discipline in Hero.TREE[race]:
 			var spot:=spots[ix]
@@ -790,3 +876,16 @@ patch("web/shell.html",[
 ('c3-config-0102.js','c3-config-0110.js'),
 ('c3-online-0102.js','c3-online-0110.js'),
 ])
+
+patch("ford/world.gd",[
+('''					add_child(avatar)
+					avatar.position=Ground.point(point)''','''					add_child(avatar)
+					Looks.fit(avatar,str(row.get("race","Человек")),"male",0)
+					avatar.position=Ground.point(point)'''),
+])
+patch("field/skills.gd",[
+('Атака с расстояния до 220.','Атака с расстояния до 5,8 м.'),
+])
+p=root/"field/spellbook.gd"
+s=p.read_text(encoding="utf-8").replace("% (ix+1)","% ((ix+1)%10)").replace("[catalog[id].name,to+1]","[catalog[id].name,(to+1)%10]")
+p.write_text(s,encoding="utf-8")
