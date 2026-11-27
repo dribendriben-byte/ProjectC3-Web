@@ -148,3 +148,64 @@ s=replace_once(s,'<script src="$GODOT_URL"></script>','''<script src="c3-config.
 s=replace_once(s,'PRE-ALPHA 0.9.1 · SINGLE PLAYER','PRE-ALPHA 0.10 · ONLINE TEST / OFFLINE')
 p.write_text(s,encoding="utf-8")
 print("Online adapter applied")
+
+
+# v0.10.1: settings and reliable explicit exit handshake with browser.
+p=root/"ford/world.gd"
+s=p.read_text(encoding="utf-8")
+s=replace_once(s,'var online_bridge\n','var online_bridge\nvar menu_callback\n')
+s=replace_once(s,'\tapply_quality(2)\n','''	apply_quality(2)
+	if online_bridge!=null:
+		menu_callback=JavaScriptBridge.create_callback(web_menu_command)
+		online_bridge.attachMenu(menu_callback,profile.muted,quality_level)
+''')
+s=replace_once(s,'\tonline_process(dt)\n\tif hud.shade.visible or town_transition: return','''	online_process(dt)
+	if web_menu_open() or hud.shade.visible or town_transition: return''')
+s=replace_once(s,'func _input(e: InputEvent) -> void:\n\tif not is_node_ready(): return','''func _input(e: InputEvent) -> void:
+	if not is_node_ready(): return
+	if web_menu_open():
+		finger=-1
+		pinch_finger=-1
+		right_drag=false
+		turning=0
+		get_viewport().set_input_as_handled()
+		return''')
+s=replace_once(s,'func _unhandled_input(e: InputEvent) -> void:\n\tif not is_node_ready() or hud.shade.visible or town_transition: return','''func _unhandled_input(e: InputEvent) -> void:
+	if not is_node_ready() or web_menu_open() or hud.shade.visible or town_transition: return''')
+s=replace_once(s,'func _physics_process(dt: float) -> void:\n\tif hud.shade.visible or town_transition: return','''func _physics_process(dt: float) -> void:
+	if web_menu_open() or hud.shade.visible or town_transition: return''')
+s+='''
+func web_menu_open() -> bool:
+	return online_bridge!=null and bool(online_bridge.menuOpen())
+
+func web_menu_command(args: Array) -> void:
+	if args.is_empty() or online_bridge==null: return
+	var command: String=str(args[0])
+	match command:
+		"save":
+			if town_transition:
+				online_bridge.menuAck(false,"Дождись завершения перехода между локациями.")
+			elif not online_character.is_empty():
+				if bool(online_bridge.blocked()):
+					online_bridge.menuAck(false,"Доступ к персонажу прекращён.")
+				else:
+					send_online_save()
+					online_bridge.menuAck(true,"")
+			else:
+				var result: int=profile.store_character()
+				online_bridge.menuAck(result==OK,"Не удалось сохранить локальный прогресс." if result!=OK else "")
+		"sound":
+			if args.size()<2: return
+			profile.muted=bool(args[1])
+			sound.set_muted(profile.muted)
+			update_sound_button()
+			save_hero()
+		"quality":
+			if args.size()<2: return
+			apply_quality(clampi(int(args[1]),0,2))
+'''
+p.write_text(s,encoding="utf-8")
+p=root/"web/shell.html"
+s=p.read_text(encoding="utf-8")
+s=replace_once(s,'PRE-ALPHA 0.10 · ONLINE TEST / OFFLINE','PRE-ALPHA 0.10.1 · ONLINE TEST / OFFLINE')
+p.write_text(s,encoding="utf-8")
