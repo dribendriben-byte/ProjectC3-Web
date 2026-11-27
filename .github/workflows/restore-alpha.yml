@@ -1,0 +1,68 @@
+name: Restore previous working C3 alpha
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/restore-alpha.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recover previously successful Pages artifact without rebuilding game
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          # The world preview preserved the old root and alpha. Prefer the
+          # most recent successful legacy build; fall back to preserved copies.
+          for workflow in build-web.yml world-preview.yml preview-menu-hotfix.yml; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?status=success&per_page=20" \
+              --jq '.workflow_runs[].id' >> /tmp/runs.txt
+          done
+          restored=false
+          while read -r run; do
+            rm -rf /tmp/previous /tmp/extracted
+            mkdir -p /tmp/previous /tmp/extracted
+            if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -n github-pages -D /tmp/previous; then continue; fi
+            if ! test -s /tmp/previous/artifact.tar; then continue; fi
+            if ! tar -xf /tmp/previous/artifact.tar -C /tmp/extracted; then continue; fi
+            if ! test -s /tmp/extracted/index.html || ! test -s /tmp/extracted/alpha/index.html; then continue; fi
+            if ! find /tmp/extracted/alpha -maxdepth 1 -name '*.wasm' -size +0c | grep -q .; then continue; fi
+            if ! find /tmp/extracted/alpha -maxdepth 1 -name '*.pck' -size +0c | grep -q .; then continue; fi
+            cp -a /tmp/extracted/. site/
+            echo "Restored previous deployed game from workflow run $run" >> "$GITHUB_STEP_SUMMARY"
+            restored=true
+            break
+          done < /tmp/runs.txt
+          if [ "$restored" != true ]; then echo "No retained complete artifact; refusing to replace live site"; exit 1; fi
+          # Retire only the experimental public route; keep its source in Git.
+          rm -rf site/world-preview
+          mkdir -p site/world-preview
+          printf '%s\n' '<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="0;url=../alpha/"><title>Project C3</title><p>Возвращаемся к основной версии. <a href="../alpha/">Открыть игру</a></p></html>' > site/world-preview/index.html
+          cp site/world-preview/index.html site/world-preview/c3-world-019.html
+          touch site/.nojekyll
+          test -s site/index.html
+          test -s site/alpha/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: restore
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
