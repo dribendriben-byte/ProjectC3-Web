@@ -466,7 +466,7 @@ func npc_model(race:String,gender:String,p:Vector2,title_:String)->Node3D:
 	return npc
 
 func build_village()->void:
-	var points:Array[Vector2]=[Vector2(-87,-8),Vector2(-87,8),Vector2(-91,-7),Vector2(-91,7),Vector2(-96,-8),Vector2(-96,8),Vector2(-101,-8),Vector2(-101,8),Vector2(-104,0)]
+	var points:Array[Vector2]=[Vector2(-87,-8),Vector2(-87,8),Vector2(-92,-7),Vector2(-92,7),Vector2(-96,-8),Vector2(-96,8),Vector2(-101,-8),Vector2(-101,8),Vector2(-104,0)]
 	var i:=0
 	for race in Hero.TREE:
 		for origin in Hero.TREE[race]:
@@ -478,8 +478,8 @@ func build_village()->void:
 			npc.set_meta("origin",origin)
 			trainers.append(npc)
 	for j in 8:
-		var a:=Vector2(-83.0,float(j%4)*2-4)
-		var b:=Vector2(-113.0,float(j%4)*2-4)
+		var a:=Vector2(-83.0-float(floori(j/4.0))*1.5,float(j%4)*2-3)
+		var b:=Vector2(-110.0,float(j%4)*2-3)
 		if not ground.legal(a) or not ground.legal(b):continue
 		var path:=ground.route(a,b)
 		if path.is_empty():continue
@@ -542,6 +542,14 @@ edit("ford/world.gd",[
 		pinch_finger=e.index
 		pinch_point=e.position
 		pinch_distance=maxf(1.0,finger_last.distance_to(pinch_point))
+		orbiting=true
+		get_viewport().set_input_as_handled()
+		return
+	if e is InputEventScreenTouch and not e.pressed and e.index==finger and pinch_finger>=0:
+		finger=pinch_finger
+		finger_last=pinch_point
+		finger_origin=pinch_point
+		pinch_finger=-1
 		orbiting=true
 		get_viewport().set_input_as_handled()
 		return
