@@ -70,7 +70,7 @@ static func recipe(id: String) -> Dictionary:
 	if not Loot.ITEMS.has(id): return {}
 	var item: Array=Loot.ITEMS[id]
 	var grade: String=item[3]
-	if not grade in RECIPE_GRADES or id.begins_with("ng_")==false and id.begins_with("d_")==false and id.begins_with("c_")==false: return {}
+	if grade not in RECIPE_GRADES or not (id.begins_with("ng_") or id.begins_with("d_") or id.begins_with("c_")): return {}
 	var factor: int=[1,4,10][RECIPE_GRADES.find(grade)]
 	var materials: Dictionary
 	if item[1]=="Оружие":
@@ -135,6 +135,14 @@ static func enchant(hero,id: String,rng: RandomNumberGenerator) -> int:
 	if rng.randf()>chance: return 0
 	hero.enchants[id]=enchant_level(hero,id)+1
 	return 1
+
+static func buy_supply(hero,id: String) -> bool:
+	if id not in ["recipe_ng","enchant_weapon","enchant_armor"]: return false
+	var cost:=Loot.price(id)
+	if cost<=0 or hero.adena<cost: return false
+	hero.adena-=cost
+	hero.inventory[id]=int(hero.inventory.get(id,0))+1
+	return true
 
 static func bonus(hero,id: String) -> int:
 	var level_:=enchant_level(hero,id)
@@ -204,7 +212,9 @@ patch("ford/world.gd",[
 			float_word(target.position,"Спойл успешен" if target.spoiled else "Спойл не удался",Color("#f2cd82"))
 			hud.feed.text="После победы нажми Сбор спойла." if target.spoiled else "Спойл не удался."'''),
 ('''	sound.effect("hit" if kind=="hit" else "heavy")
-	var hit_chance''','''	var charge: String="spiritshot" if profile.mystic() else "soulshot"
+	var hit_chance''','''	var weapon: String=profile.equipment.get("Оружие","")
+	var magic: bool=Loot.ITEMS[weapon][6]=="staff" if Loot.ITEMS.has(weapon) else profile.mystic()
+	var charge: String="spiritshot" if magic else "soulshot"
 	var enabled: bool=profile.spirit_enabled if charge=="spiritshot" else profile.soul_enabled
 	if enabled and profile.consume_one(charge):
 		amount=roundi(amount*(1.7 if charge=="spiritshot" else 1.5))
@@ -220,6 +230,8 @@ patch("ford/world.gd",[
 	reward["place"]=target.flat()
 	profile.ground_loot.append(reward)
 	spawn_pile(reward)''','''	var reward := Loot.roll(target.kind,target.rank,.04*profile.role_score("Добыча"),false,rng)
+	var penalty:=clampf(1.0-maxi(0,profile.level()-target.rank-5)*.08,.15,1.0)
+	reward["adena"]=maxi(1,roundi(int(reward.adena)*penalty))
 	reward["place"]=target.flat()
 	profile.ground_loot.append(reward)
 	spawn_pile(reward)
@@ -342,7 +354,7 @@ func open_forge() -> void:
 	var rows: VBoxContainer=hud.show_panel("Кузнец · "+str(profile.adena)+" аден")
 	var tabs:=HBoxContainer.new()
 	rows.add_child(tabs)
-	for mode in ["Крафт","Рецепты","Заточка"]:
+	for mode in ["Крафт","Рецепты","Заточка","Свитки"]:
 		var tab: Button=hud.button(mode)
 		tab.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 		tabs.add_child(tab)
@@ -358,6 +370,12 @@ func open_forge() -> void:
 			var enabled: bool=profile.inventory.get(id,0)>0 and not profile.recipes.has(grade) and profile.level()>=Loot.requirement(id) and (grade=="NG" or profile.role_score("Оружейник")>0)
 			forge_line(rows,str(Loot.ITEMS[id][0]),"В сумке: "+str(profile.inventory.get(id,0))+(" · изучен" if profile.recipes.has(grade) else " · выпадает с монстров"),"Изучить",enabled,func():
 				if near_smith() and Forge.learn_recipe(profile,id): after_forge("Рецепты "+grade+" изучены."))
+	elif forge_mode=="Свитки":
+		rows.add_child(hud.label("Свитки также выпадают с монстров.",14))
+		for id in ["recipe_ng","enchant_weapon","enchant_armor"]:
+			var cost:=Loot.price(id)
+			forge_line(rows,str(Loot.ITEMS[id][0]),"В сумке: "+str(profile.inventory.get(id,0))+" · "+str(cost)+" аден","Купить",profile.adena>=cost,func():
+				if near_smith() and Forge.buy_supply(profile,id): after_forge("Куплено: "+str(Loot.ITEMS[id][0])))
 	elif forge_mode=="Крафт":
 		var grades:=HBoxContainer.new()
 		rows.add_child(grades)
@@ -448,6 +466,8 @@ func _initialize() -> void:
 		push_error("Enchanted item protection failed");quit(1);return
 	if not h.toggle_item("ng_sword") or h.equipped_bonus("Оружие")<=Loot.ITEMS.ng_sword[2]:
 		push_error("Enchant stat bonus failed");quit(1);return
+	if not Forge.buy_supply(h,"enchant_armor") or h.inventory.enchant_armor!=1 or Forge.buy_supply(h,"recipe_d"):
+		push_error("Smith supply validation failed");quit(1);return
 	if not h.consume_one("soulshot") or h.inventory.soulshot!=1:
 		push_error("Charge consumption failed");quit(1);return
 	for i in 30:
