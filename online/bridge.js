@@ -249,6 +249,46 @@
     if(active&&cover.hidden&&!blocked&&Date.now()-socialLast>(social.hidden?12000:3000))void refreshSocial();
   },1000);
 
+
+  // Authoritative raid snapshot and attack event. Never write these rewards into legacy saves.
+  let raidState=null,raidEvent=null,raidSerial=0,raidBusy=false,raidLast=0;
+  const raidSummary=document.createElement("p");
+  raidSummary.style.cssText="padding:8px;border:1px solid #6f7654;border-radius:4px;color:#edcf88";
+  raidSummary.textContent="Рейдовый счёт: загрузка...";
+  by("c3-social-training").prepend(raidSummary);
+  function updateRaid(state){
+    raidState=state;
+    const w=state.wallet||{};
+    raidSummary.textContent="Серверный рейдовый EXP: "+(w.xp||0)+" · Жетоны: "+(w.tokens||0)+" · Добивания: "+(w.kills||0);
+  }
+  async function raidRefresh(){
+    if(!active||!client||blocked||exiting||!cover.hidden||raidBusy)return;
+    raidBusy=true;raidLast=Date.now();
+    try{updateRaid(await rpc("c3_raid",{p_action:"state",p_mob:null}));}
+    catch(e){raidSummary.textContent="Рейд: "+e.message;}
+    finally{raidBusy=false;}
+  }
+  async function raidHit(mob){
+    if(!active||!client||blocked||exiting||raidBusy||!cover.hidden||!modal.hidden||!social.hidden)return false;
+    if(!Number.isInteger(mob)||mob<1||mob>2)return false;
+    raidBusy=true;raidLast=Date.now();
+    try{
+      const state=await rpc("c3_raid",{p_action:"hit",p_mob:mob});
+      updateRaid(state);
+      raidEvent={serial:++raidSerial,mob,damage:state.hit,kill:state.kill,xp:state.reward_xp,tokens:state.reward_tokens};
+    }catch(e){raidEvent={serial:++raidSerial,mob,error:e.message};}
+    finally{raidBusy=false;}
+    return true;
+  }
+  window.C3Raid={
+    snapshot:()=>JSON.stringify(raidState||{}),
+    event:()=>JSON.stringify(raidEvent||{}),
+    hit:mob=>{void raidHit(Number(mob));},
+    ready:()=>active&&!blocked&&!exiting&&!!raidState,
+    busy:()=>raidBusy
+  };
+  setInterval(()=>{if(active&&cover.hidden&&!blocked&&Date.now()-raidLast>2200)void raidRefresh();},500);
+
   window.C3Online={
     attachMenu:(callback,muted,quality)=>{command=callback;by('c3-sound').value=muted?'off':'on';by('c3-quality').value=String(quality);enableMenu();},
     menuOpen:()=>!modal.hidden||!social.hidden,
