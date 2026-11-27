@@ -10,7 +10,7 @@ const raceLabels=["Люди","Эльфы","Ночные эльфы","Орки","
 const skinPalettes=[["#e2b797","#cc9c77","#ad7754","#80523c"],["#f0d7bc","#d5ae8d","#b68d68","#977150"],["#aab0c4","#8c91ab","#6f748e","#555a72"],["#a0af78","#82915c","#687448","#485b39"],["#e0b48d","#c28c65","#a36d50","#785039"]];
 const hairs=["#362a26","#805039","#d3b075","#d8d9d2"];
 const cloth=["#55788e","#5c8560","#6f608a","#876044","#a67c48"];
-let client=null, characters=[], selected=null, revision=0, queue=null, saving=false, saveError="", started=false, menuCallback=null, busy=false;
+let client=null, localMode=false, clientLoad=null, characters=[], selected=null, revision=0, queue=null, saving=false, saveError="", started=false, menuCallback=null, busy=false;
 let settings={sound:true,quality:1};try{Object.assign(settings,JSON.parse(localStorage.getItem("c3-world-settings")||"{}"))}catch(_){}
 settings.sound=!!settings.sound;settings.quality=Math.max(0,Math.min(2,Number(settings.quality)||0));
 const shell=el("div","c3-shell"), view=el("div","c3-screen");
@@ -21,13 +21,48 @@ const css=el("style");css.textContent=
 "#cover{padding:clamp(10px,2.5vw,36px);background:radial-gradient(ellipse at 50% 12%,#52665b 0,#22382d 37%,#101b19 72%,#0a1110 100%);align-items:center}#cover .panel{width:min(920px,100%);padding:clamp(14px,3vw,34px);background:#14231fe8;border:1px solid #aa9564;border-radius:10px;box-shadow:0 20px 70px #0009}.c3-screen h1{font:700 clamp(46px,8vw,82px)/.95 Georgia,serif;color:#f0d59e;letter-spacing:.08em;margin:8px 0}.c3-screen h2{color:#ebd5a5;margin:6px 0 14px;font:400 clamp(22px,4vw,36px) Georgia,serif}.c3-kicker{font:700 11px system-ui;letter-spacing:.23em;color:#cfb47d}.c3-sub{max-width:560px;margin:12px auto;color:#c5d0c3}.c3-choice{background:linear-gradient(180deg,#cbb17c,#a78a50);border:1px solid #e1c98d;color:#172019;font:700 clamp(15px,2.5vw,20px) system-ui;min-height:48px;margin:6px 0;padding:12px;border-radius:6px}.c3-secondary{background:#263c34;color:#e4d7b4;border-color:#857957}.c3-menu-stack{max-width:420px;margin:20px auto 0}.c3-slots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.c3-slot{min-height:180px;border:1px solid #82795d;background:#23382f;border-radius:8px;color:#eddfbf;padding:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer}.c3-slot:hover,.c3-slot:focus-visible{border-color:#f0ce84;background:#354d3d}.c3-slot strong{font:700 18px Georgia,serif;overflow-wrap:anywhere}.c3-slot small{font-size:12px;color:#becbbd}.c3-plus{font:38px Georgia;color:#d9bc80}.c3-creation{display:grid;grid-template-columns:minmax(135px,1fr) minmax(0,1.5fr);gap:20px;text-align:left}.c3-portrait{display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px solid #78866e;border-radius:8px;min-height:170px;background:radial-gradient(ellipse,#496251,#1b2c26 75%)}.c3-portrait svg{display:block;width:min(180px,100%);height:auto}.c3-form{display:grid;gap:6px}.c3-form label{font-size:12px;color:#d9c7a2;display:block}.c3-form input,.c3-form select,.c3-screen input,.c3-screen select{min-width:0;width:100%;border:1px solid #7d8c75;background:#101d19;color:#f2e7ca;border-radius:5px;padding:8px;font:16px system-ui}.c3-form .c3-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.c3-actions{display:flex;gap:10px}.c3-actions button{flex:1}.c3-screen button:disabled{opacity:.55}.c3-game-menu-button{position:fixed;top:max(6px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:2;width:auto;margin:0;padding:6px 13px;font-size:12px}.c3-game-overlay{position:fixed;inset:0;display:grid;place-items:center;z-index:5;background:#0a1512d9;padding:14px;overflow:auto}.c3-game-overlay[hidden],.c3-game-menu-button[hidden],#play[hidden]{display:none!important}.c3-game-overlay section{width:min(450px,100%);background:#172820;border:1px solid #bba06a;border-radius:9px;padding:20px}.c3-game-overlay button{margin:5px 0;padding:10px}.c3-game-overlay p{min-height:20px;overflow-wrap:anywhere}@media(max-width:520px){.c3-slots{gap:5px}.c3-slot{min-height:145px;padding:6px}.c3-slot strong{font-size:14px}.c3-slot small{font-size:10px}.c3-creation{gap:8px;grid-template-columns:105px 1fr}.c3-form .c3-pair{gap:5px}.c3-form input,.c3-form select{padding:5px}.c3-portrait svg{width:100%}.c3-choice{min-height:40px;padding:8px}}@media(max-height:500px){#cover{align-items:start}.c3-slot{min-height:120px}.c3-screen h1{font-size:46px}.c3-screen h2{font-size:23px;margin:4px 0}.c3-menu-stack{margin:6px auto}.c3-choice{min-height:40px;padding:7px}.c3-form{gap:4px}.c3-portrait svg{max-height:140px}}";
 document.head.append(css);
 function setStatus(s){status.textContent=s}
+const LOCAL_SLOTS="c3-world-preview-local-v1";
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function networkError(e){return /failed to fetch|networkerror|network request|load failed|timeout|connection|fetch failed/i.test(String(e?.message||e))}
+function readableError(e){return networkError(e)?"Нет ответа от сервера. Проверь соединение и повтори вход.":String(e?.message||e)}
+function readLocal(){
+ const raw=JSON.parse(localStorage.getItem(LOCAL_SLOTS)||"[]");
+ if(!Array.isArray(raw))throw Error("Локальные сохранения повреждены. Не перезаписываю их.");
+ return raw;
+}
+function writeLocal(rows){localStorage.setItem(LOCAL_SLOTS,JSON.stringify(rows))}
+function offline(){
+ if(busy||started)return;
+ try{characters=readLocal();localMode=true;slots()}catch(e){setStatus("Локальное сохранение: "+e.message)}
+}
+function cloudFailure(e){
+ title("PROJECT C3 · ПОДКЛЮЧЕНИЕ","Не удалось войти",readableError(e));
+ const actions=el("div","c3-menu-stack");
+ actions.append(btn("Повторить подключение",start),btn("Войти заново",async()=>{
+  if(busy)return;
+  try{await initClient();login()}catch(err){setStatus(readableError(err))}
+ },"c3-choice c3-secondary"),
+ btn("Тестировать мир без сервера",offline,"c3-choice c3-secondary"),
+ btn("Назад",main,"c3-choice c3-secondary"));
+ view.append(actions);
+ setStatus("Локальный режим не использует облачные сохранения.");
+}
+async function initClient(){
+ if(client)return client;
+ if(!cfg?.url||!cfg?.key)throw Error("Не настроено подключение к серверу.");
+ if(!clientLoad)clientLoad=import("./c3-supabase-0191.js").catch(()=>import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/+esm")).then(({createClient})=>{
+  client=createClient(cfg.url,cfg.key,{auth:{storageKey:"c3-world-preview-auth-v1",persistSession:true,autoRefreshToken:true}});
+  return client;
+ }).catch(e=>{clientLoad=null;throw e});
+ return clientLoad;
+}
 function title(k,h,sub=""){
  view.replaceChildren(el("div","c3-kicker",k),el("h2","",h));
  if(sub)view.append(el("p","c3-sub",sub));
  setStatus("");
 }
 function main(){
- title("PROJECT C3 · WORLD PREVIEW 0.19","Вересковые земли");
+ title("PROJECT C3 · WORLD PREVIEW 0.19.1","Вересковые земли");
  view.insertBefore(el("h1","","C3"),view.children[1]);
  view.append(el("p","c3-sub","Ты просыпаешься в незнакомой деревне. Ни прошлого, ни воспоминаний — только дорога впереди."));
  const stack=el("div","c3-menu-stack");stack.append(btn("Начать играть",start),btn("Настройки",()=>settingsScreen(main),"c3-choice c3-secondary"),btn("Выйти",()=>{title("PROJECT C3","Сеанс завершён","В браузере вкладку можно закрыть вручную.");view.append(btn("В главное меню",main));},"c3-choice c3-secondary"));view.append(stack);
@@ -44,16 +79,44 @@ function settingsScreen(back){
  view.append(form);
 }
 async function rpc(action,payload={}){
- const {data,error}=await client.rpc("c3_world_slots_api",{p_action:action,p_payload:payload});if(error)throw Error(error.message);return data;
+ if(localMode){
+  const rows=readLocal();
+  if(action==="list")return rows;
+  if(action==="create"){
+   if(rows.some(c=>Number(c.slot)===Number(payload.slot)))throw Error("Слот занят.");
+   if(!/^[\p{L}\p{N}_-]{3,24}$/u.test(payload.name))throw Error("Имя: 3–24 буквы, цифры, дефис или подчёркивание.");
+   if(rows.some(c=>c.name.toLowerCase()===payload.name.toLowerCase()))throw Error("Имя уже используется.");
+   rows.push({...payload,id:"local-"+payload.slot,revision:0,progress:{},x:-85.2,z:0});
+   writeLocal(rows);return rows;
+  }
+  if(action==="save"){
+   const c=rows.find(c=>c.id===payload.id&&c.revision===payload.revision);
+   if(!c)throw Error("Save conflict: reload your character");
+   Object.assign(c,{revision:c.revision+1,progress:payload.progress,x:payload.x,z:payload.z});
+   writeLocal(rows);return {revision:c.revision};
+  }
+  throw Error("Неизвестное действие.");
+ }
+ await initClient();
+ for(let attempt=0;;attempt++){
+  const {data,error}=await client.rpc("c3_world_slots_api",{p_action:action,p_payload:payload});
+  if(!error)return data;
+  if(action!=="list"||attempt>=1||!networkError(error))throw Error(error.message);
+  await sleep(900);
+ }
 }
 async function start(){
  if(busy)return;busy=true;setStatus("Подключение...");
  try{
- if(!client)throw Error("Сервис аккаунтов ещё подключается. Повтори попытку.");
- const {data:{session}}=await client.auth.getSession();
- if(!session){login();return}
- characters=await rpc("list");slots();
- }catch(e){setStatus(e.message)}finally{busy=false}
+ localMode=false;
+ await initClient();
+ const {data,error}=await client.auth.getSession();
+ if(error)throw error;
+ if(!data?.session){login();return}
+ characters=await rpc("list");
+ if(!Array.isArray(characters))throw Error("Сервер вернул неверный список персонажей.");
+ slots();
+ }catch(e){cloudFailure(e)}finally{busy=false}
 }
 function login(){
  title("PROJECT C3","Вход в аккаунт","Используй уже одобренный аккаунт закрытой альфы.");
@@ -61,15 +124,17 @@ function login(){
  email.type="email";email.required=true;email.autocomplete="email";email.placeholder="Email";
  password.type="password";password.required=true;password.autocomplete="current-password";password.placeholder="Пароль";
  const submit=el("button","c3-choice","Войти");submit.type="submit";
- form.append(email,password,submit,btn("Назад",main,"c3-choice c3-secondary"));
+ form.append(email,password,submit,btn("Тестировать без сервера",offline,"c3-choice c3-secondary"),btn("Назад",main,"c3-choice c3-secondary"));
  form.onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;submit.disabled=true;setStatus("Вход...");try{
+ localMode=false;await initClient();
  const {error}=await client.auth.signInWithPassword({email:email.value.trim(),password:password.value});if(error)throw error;
- characters=await rpc("list");password.value="";slots();
- }catch(err){setStatus(err.message)}finally{busy=false;submit.disabled=false}};
+ password.value="";
+ characters=await rpc("list");if(!Array.isArray(characters))throw Error("Сервер вернул неверный список персонажей.");slots();
+ }catch(err){setStatus(readableError(err))}finally{busy=false;submit.disabled=false}};
  view.append(form);
 }
 function slots(){
- title("PROJECT C3 · ВЫБОР ПЕРСОНАЖА","Три пути","Новые персонажи этой тестовой сборки имеют отдельные сохранения. Старая альфа не изменена.");
+ title("PROJECT C3 · ВЫБОР ПЕРСОНАЖА","Три пути",localMode?"Локальный тест · сохранения только на этом устройстве, отдельно от облака.":"Новые персонажи этой тестовой сборки имеют отдельные сохранения. Старая альфа не изменена.");
  const list=el("div","c3-slots");
  for(let i=1;i<=3;i++){
  const c=characters.find(c=>Number(c.slot)===i),b=el("button","c3-slot");b.type="button";
@@ -79,7 +144,7 @@ function slots(){
  list.append(b);
  }
  view.append(list);
- const actions=el("div","c3-actions");actions.append(btn("Главное меню",main,"c3-choice c3-secondary"),btn("Сменить аккаунт",async()=>{if(busy)return;busy=true;try{const {error}=await client.auth.signOut({scope:"local"});if(error)throw error;characters=[];login()}catch(e){setStatus(e.message)}finally{busy=false}},"c3-choice c3-secondary"));view.append(actions);
+ const actions=el("div","c3-actions");actions.append(btn("Главное меню",main,"c3-choice c3-secondary"),btn(localMode?"Войти онлайн":"Сменить аккаунт",async()=>{if(busy)return;if(localMode){localMode=false;characters=[];void start();return}busy=true;try{const {error}=await client.auth.signOut({scope:"local"});if(error)throw error;characters=[];login()}catch(e){setStatus(e.message)}finally{busy=false}},"c3-choice c3-secondary"));view.append(actions);
 }
 const NS="http://www.w3.org/2000/svg";
 function makePortrait(c){
@@ -153,6 +218,5 @@ window.C3Preview={character:()=>JSON.stringify(selected||{}),settings:()=>JSON.s
  },menuOpen:()=>!overlay.hidden,attach:cb=>{menuCallback=cb},saveError:()=>saveError};
 window.addEventListener("keydown",e=>{if(e.key==="Escape"&&cover.hidden){e.preventDefault();e.stopImmediatePropagation();overlay.hidden=!overlay.hidden;if(overlay.hidden)document.getElementById("canvas").focus()}},true);
 main();
-if(cfg?.url&&cfg?.key)import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/+esm").then(({createClient})=>{client=createClient(cfg.url,cfg.key);}).catch(e=>setStatus("Не удалось подключиться: "+e.message));
-else setStatus("Не настроено подключение к серверу.");
+void initClient().catch(()=>{});
 })();
