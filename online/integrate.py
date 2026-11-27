@@ -142,8 +142,8 @@ p.write_text(s,encoding="utf-8")
 # HTML must load config and bridge before the existing main game handler.
 p=root/"web/shell.html"
 s=p.read_text(encoding="utf-8")
-s=replace_once(s,'<script src="$GODOT_URL"></script>','''<script src="c3-config.js"></script>
-<script src="c3-online.js"></script>
+s=replace_once(s,'<script src="$GODOT_URL"></script>','''<script src="c3-config-0102.js"></script>
+<script src="c3-online-0102.js"></script>
 <script src="$GODOT_URL"></script>''')
 s=replace_once(s,'PRE-ALPHA 0.9.1 · SINGLE PLAYER','PRE-ALPHA 0.10 · ONLINE TEST / OFFLINE')
 p.write_text(s,encoding="utf-8")
@@ -207,5 +207,5 @@ func web_menu_command(args: Array) -> void:
 p.write_text(s,encoding="utf-8")
 p=root/"web/shell.html"
 s=p.read_text(encoding="utf-8")
-s=replace_once(s,'PRE-ALPHA 0.10 · ONLINE TEST / OFFLINE','PRE-ALPHA 0.10.1 · ONLINE TEST / OFFLINE')
+s=replace_once(s,'PRE-ALPHA 0.10 · ONLINE TEST / OFFLINE','PRE-ALPHA 0.10.2 · ONLINE TEST / OFFLINE')
 p.write_text(s,encoding="utf-8")
