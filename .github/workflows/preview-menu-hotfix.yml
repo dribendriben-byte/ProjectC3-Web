@@ -1,0 +1,71 @@
+name: Project C3 preview connection hotfix 0.19.1
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/preview-menu-hotfix.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover most recent complete successful preview deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/previous site
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/world-preview.yml/runs?status=success&per_page=5" > /tmp/preview-runs.json
+          run_id="$(python3 -c 'import json; r=json.load(open("/tmp/preview-runs.json"))["workflow_runs"]; print(r[0]["id"] if r else "")')"
+          test -n "$run_id"
+          gh run download "$run_id" -R "$GITHUB_REPOSITORY" -n github-pages -D /tmp/previous
+          test -s /tmp/previous/artifact.tar
+          tar -xf /tmp/previous/artifact.tar -C site
+          test -s site/index.html
+          test -s site/alpha/index.html
+          test -s site/world-preview/index.html
+          test -s site/world-preview/c3-world-019.wasm
+          test -s site/world-preview/c3-world-019.pck
+      - name: Package pinned client locally and test menu
+        run: |
+          set -euo pipefail
+          node --check preview/menu_019.js
+          mkdir -p /tmp/c3-sdk
+          cd /tmp/c3-sdk
+          npm init -y >/dev/null
+          npm install --ignore-scripts --no-audit --no-fund --save-exact @supabase/supabase-js@2.49.4 esbuild@0.25.0
+          printf 'export { createClient } from "@supabase/supabase-js";\n' > entry.mjs
+          ./node_modules/.bin/esbuild entry.mjs --bundle --platform=browser --format=esm --minify --outfile="$GITHUB_WORKSPACE/site/world-preview/c3-supabase-0191.js"
+          cd "$GITHUB_WORKSPACE"
+          cp preview/menu_019.js site/world-preview/c3-menu-0191.js
+          cp preview/menu_019.js site/world-preview/c3-menu-019.js
+          for p in site/world-preview/index.html site/world-preview/c3-world-019.html; do
+            test -s "$p"
+            sed -i 's/c3-menu-019\.js/c3-menu-0191.js/g' "$p"
+            grep -F 'c3-menu-0191.js' "$p"
+          done
+          test -s site/world-preview/c3-supabase-0191.js
+          node --check site/world-preview/c3-menu-0191.js
+          touch site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: hotfix
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
