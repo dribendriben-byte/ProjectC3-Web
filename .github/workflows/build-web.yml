@@ -5,6 +5,7 @@ on:
     paths:
       - 'ProjectC3_Web_v0.9_Source.zip'
       - '.github/workflows/build-web.yml'
+      - 'online/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -224,7 +225,7 @@ jobs:
           godot --headless --verbose --path "$project" --export-release Web "$PWD/site/index.html"
           for f in index.html index.js index.wasm index.pck; do test -s "site/$f"; done
           touch site/.nojekyll
-      - name: Build separate closed online alpha
+      - name: Build separate closed online alpha v0.10.1
         run: |
           set -euo pipefail
           project="$PWD/source/ProjectC3_Web_v0.9/Ford3D"
