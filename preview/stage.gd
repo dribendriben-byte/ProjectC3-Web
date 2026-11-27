@@ -75,7 +75,13 @@ static func build(root:Node3D)->void:
 	land.mesh=terrain.commit()
 	root.add_child(land)
 	# Real static collision mesh for the continuous terrain.
-	land.create_trimesh_collision()
+	var body:=StaticBody3D.new()
+	root.add_child(body)
+	var collider:=CollisionShape3D.new()
+	var surface_shape:=land.mesh.create_trimesh_shape()
+	surface_shape.backface_collision=true
+	collider.shape=surface_shape
+	body.add_child(collider)
 	var stream:=SurfaceTool.new()
 	stream.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var water:=StandardMaterial3D.new()
