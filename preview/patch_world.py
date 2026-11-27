@@ -767,11 +767,15 @@ func _physics_process(dt:float)->void:
 	else:player_body.velocity.y=-.15
 	player_body.move_and_slide()
 	actor=Vector2(player_body.position.x,player_body.position.z)
+	if not ground.legal(actor) or player_body.position.y<Ground.height(actor)-1.0:
+		actor=prev
+		player_body.position=Ground.point(actor)+Vector3.UP*.1
+		player_body.velocity=Vector3.ZERO
 	hero.position=player_body.position
 	var in_village:=Ground.village(actor)
 	if in_village!=town:
 		town=in_village
-		clear_target()
+		if target!=null or collecting!=null:clear_target()
 		hud.feed.text=Ground.sector(actor)+" · "+("Безопасная зона" if town else "Открытый мир")
 	if collecting!=null and actor.distance_to(collecting.point)<=1.65:take_pile()
 	var in_combat:=false
