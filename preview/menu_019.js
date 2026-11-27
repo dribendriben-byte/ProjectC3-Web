@@ -140,7 +140,8 @@ box.append(el("h2","","Игровое меню"),btn("Продолжить",()=>
  if(!menuCallback){menuText.textContent="Движок ещё подключается";return}
  if(busy)return;busy=true;menuText.textContent="Сохранение...";
  try{
-  menuCallback("save");for(let i=0;i<100&&(saving||queue)&&!saveError;i++)await new Promise(r=>setTimeout(r,150));
+  if(saveError&&!saveError.includes("Save conflict"))saveError="";
+  menuCallback("save");void flush();for(let i=0;i<100&&(saving||queue)&&!saveError;i++)await new Promise(r=>setTimeout(r,150));
   if(saveError||saving||queue)throw Error(saveError||"Сохранение не подтверждено");
   location.reload();
  }catch(e){menuText.textContent=e.message}finally{busy=false}
