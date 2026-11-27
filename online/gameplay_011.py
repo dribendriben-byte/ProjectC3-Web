@@ -91,13 +91,13 @@ patch("field/hud.gd",[
 ('''		slots.append(key)
 	var names''','''		slots.append(key)
 	autoattack=icon_button("hit","Автоатака")
-	place(ui,autoattack,Rect2(866,447,76,80))
+	place(ui,autoattack,Rect2(866,462,76,66))
 	autoattack.pressed.connect(func(): autoattack_requested.emit())
 	pickup_button=icon_button("pickup","Подобрать добычу")
 	place(ui,pickup_button,Rect2(804,468,54,54))
 	pickup_button.pressed.connect(func(): pickup_requested.emit())
 	target_button=icon_button("cycle","Следующая цель")
-	place(ui,target_button,Rect2(804,408,54,54))
+	place(ui,target_button,Rect2(866,205,54,54))
 	target_button.pressed.connect(func(): target_requested.emit())
 	trainer_button=button("Мастер класса · изучить")
 	place(ui,trainer_button,Rect2(650,315,295,47))
@@ -106,9 +106,9 @@ patch("field/hud.gd",[
 	var names'''),
 ('bag.peer=sheet','bag.hotbar_drop.connect(func(id,point):\n\t\tvar slot:=bar_at(point)\n\t\tif slot>=0: item_assigned.emit(id,slot))\n\tbag.peer=sheet'),
 ('gateway.position = Vector2(650 + extra.x,372 + extra.y)','''gateway.position = Vector2(650 + extra.x,372 + extra.y)
-	autoattack.position=Vector2(866+extra.x,447+extra.y)
+	autoattack.position=Vector2(866+extra.x,462+extra.y)
 	pickup_button.position=Vector2(804+extra.x,468+extra.y)
-	target_button.position=Vector2(804+extra.x,359+extra.y)
+	target_button.position=Vector2(866+extra.x,205)
 	trainer_button.position=Vector2(650+extra.x,315+extra.y)'''),
 ('func show_book(hero: Careers, catalog: Dictionary) -> void:','func show_book(hero: Careers, catalog: Dictionary, training: bool=false) -> void:'),
 ('book_editor.present(hero,catalog)','book_editor.present(hero,catalog,training)'),
@@ -317,7 +317,7 @@ func tick(dt: float,engaged: bool,player: Vector2) -> void:
 	swing=maxf(0,swing-dt)
 	hit_flash=maxf(0,hit_flash-dt)
 	attack_timer=maxf(0,attack_timer-dt)
-	if engaged or (hostile and previous.distance_to(player)<3.2 and home.distance_to(player)<8): aggro=true
+	if (engaged or (hostile and previous.distance_to(player)<3.2)) and home.distance_to(player)<8: aggro=true
 	if aggro and home.distance_to(player)>9.0: aggro=false;hp=max_hp;spoiled=false;update_label()
 	var goal:=home+Vector2(.72*cos(phase*.72),.64*sin(phase*.58))
 	var speed:=.68
@@ -382,6 +382,9 @@ patch("ford/world.gd",[
 		profile.appearance=int(online_character.get("appearance",0))
 	Looks.fit(hero,profile.race,profile.gender,profile.appearance)
 	spells=Skills.book(profile)
+	if profile.hotbar.size()==7:
+		for sk in spells:
+			if sk.level==1 and profile.hotbar.has("spell/"+str(sk.name)): profile.learned[sk.name]=true
 	catalog=Actions.build(spells)'''),
 ('''	for i in homes.size():
 		var mob := Beast.new()
@@ -719,4 +722,71 @@ patch("project.godot",[
 patch("web/shell.html",[
 ('PRE-ALPHA 0.10.2 · ONLINE TEST / OFFLINE','PRE-ALPHA 0.11 · ONLINE TEST / OFFLINE'),
 ('1–7 — умения','1–0 — предметы и умения'),
+])
+
+
+# Touch-friendly alternative to drag: select item, then tap destination slot.
+patch("field/floating_panel.gd",[
+('signal hotbar_drop(id: String, point: Vector2)','signal hotbar_drop(id: String, point: Vector2)\nsignal hotbar_choose(id: String)'),
+('''	line(Vector2(101,326),chance[chosen],13,SOFT)
+	if info[1]=="Материал":''','''	line(Vector2(101,326),chance[chosen],13,SOFT)
+	box(Rect2(18,336,175,29),Color("#354d3f"),GOLD)
+	line(Vector2(19,356),"На панель",13,PAPER,173,HORIZONTAL_ALIGNMENT_CENTER)
+	if info[1]=="Материал":'''),
+('''		if Rect2(209,345,158,42).has_point(p) and chosen!=""''','''		if Rect2(18,336,175,29).has_point(p) and chosen!="":
+			hotbar_choose.emit(chosen)
+			hide()
+			return
+		if Rect2(209,345,158,42).has_point(p) and chosen!=""'''),
+])
+patch("field/hud.gd",[
+('signal item_assigned(id: String, slot: int)','signal item_assigned(id: String, slot: int)\nsignal item_choose(id: String)'),
+('bag.hotbar_drop.connect(func(id,point):','bag.hotbar_choose.connect(func(id): item_choose.emit(id))\n\tbag.hotbar_drop.connect(func(id,point):'),
+])
+patch("ford/world.gd",[
+('var auto_enabled:=false','var auto_enabled:=false\nvar assigning_item:=""'),
+('''	hud.item_assigned.connect(func(id: String,slot: int):
+		var key: String="item/"+id
+		if not catalog.has(key) or profile.inventory.get(id,0)<=0: return
+		var old:=profile.hotbar.find(key)
+		if old>=0: profile.hotbar[old]=""
+		profile.hotbar[slot]=key
+		save_hero()
+		update_ui())''','''	hud.item_assigned.connect(assign_item)
+	hud.item_choose.connect(func(id: String):
+		assigning_item=id
+		hud.feed.text="Выбери ячейку 1–0 для предмета.")'''),
+('''	var id: String=profile.hotbar[i]
+	if id.is_empty(): return''','''	if not assigning_item.is_empty():
+		var chosen:=assigning_item
+		assigning_item=""
+		assign_item(chosen,i)
+		return
+	var id: String=profile.hotbar[i]
+	if id.is_empty(): return'''),
+('''	if not town:
+		var in_combat:=false
+		for mob in mobs:''','''	var in_combat:=false
+	if not town:
+		for mob in mobs:'''),
+('if not engaged: hp=mini(profile.hp_max(),hp+2)','if not in_combat and not engaged: hp=mini(profile.hp_max(),hp+2)'),
+])
+p=root/"ford/world.gd"
+s=p.read_text(encoding="utf-8")
+s+='''
+func assign_item(id: String,slot: int) -> void:
+	var key: String="item/"+id
+	if slot<0 or slot>=10 or not catalog.has(key) or profile.inventory.get(id,0)<=0: return
+	var old:=profile.hotbar.find(key)
+	if old>=0: profile.hotbar[old]=""
+	profile.hotbar[slot]=key
+	hud.feed.text=str(catalog[key].name)+" → "+str((slot+1)%10)
+	save_hero()
+	update_ui()
+'''
+p.write_text(s,encoding="utf-8")
+# New exported assets prevent stale browser code.
+patch("web/shell.html",[
+('c3-config-0102.js','c3-config-0110.js'),
+('c3-online-0102.js','c3-online-0110.js'),
 ])
