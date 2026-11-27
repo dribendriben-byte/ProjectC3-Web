@@ -12,6 +12,8 @@
   css.textContent="#c3form input,#c3character input,#c3character select{display:block;width:100%;padding:10px;margin:6px 0;border:1px solid #677c64;border-radius:5px;background:#172720;color:#f2e7ca;font:16px system-ui}#c3admin article{border-top:1px solid #677c64;padding:8px 0}#c3form button,#c3character button,#c3enter,#c3gm,#c3logout,#c3admin button{padding:9px;margin:4px 0;font-size:14px}#c3status{overflow-wrap:anywhere}#cover{overflow:auto;align-items:start}#cover .panel{margin:auto}";
   document.head.append(css);
   play.textContent="Играть офлайн (локальное сохранение)";
+  document.getElementById("notice").textContent="Закрытая онлайн-альфа. Аккаунт требует одобрения GM. Сохранения онлайн и офлайн раздельные.";
+  by("c3login").disabled=true;by("c3signup").disabled=true;
   const races={"Человек":["Ратник","Ученик чар"],"Эльф":["Страж","Ученик росы"],"Тёмный эльф":["Воин тени","Ученик сумерек"],"Орк":["Боец","Ученик духов"],"Гном":["Подгорный боец"]};
   const options=(node,values)=>{node.replaceChildren(...values.map(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;return o;}));};
   options(by("c3race"),Object.keys(races));
@@ -25,6 +27,7 @@
     by("c3form").hidden=!!session;by("c3logout").hidden=!session;
     by("c3character").hidden=true;by("c3enter").hidden=true;by("c3gm").hidden=true;by("c3admin").hidden=true;
     character=null;if(!session)return;
+    if(!(await rpc("c3_alpha_allowed"))){msg("Закрытая альфа: аккаунт ожидает одобрения GM.");return;}
     character=await rpc("c3_my_character");
     by("c3gm").hidden=!(await rpc("c3_is_gm"));
     by("c3character").hidden=!!character;
@@ -71,6 +74,6 @@
   setInterval(flush,3000);
   window.addEventListener("pagehide",()=>{if(active&&!blocked){void flush();void rpc("c3_leave").catch(()=>{});}});
   import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/+esm").then(async({createClient})=>{
-    client=createClient(cfg.url,cfg.key);await refresh();
+    client=createClient(cfg.url,cfg.key);by("c3login").disabled=false;by("c3signup").disabled=false;await refresh();
   }).catch(e=>msg("Сервер недоступен: "+e.message));
 })();
