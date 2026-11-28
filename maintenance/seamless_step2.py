@@ -132,6 +132,18 @@ s=s.replace('ground=city_ground if town else field_ground','')
 # Remove blank assignment lines if they had indentation; all later calls use unified nav.
 s=s.replace('city_model.visible=town','city_model.show()')
 s=s.replace('for pile in piles: pile.visible=not town','for pile in piles: pile.show()')
+# Both regions are permanently present. Proximity checks still govern interaction.
+for old,new in [
+    ('npc.visible=town','npc.show()'),
+    ('merchant.visible=town','merchant.show()'),
+    ('smith.visible=town','smith.show()'),
+    ('npc.visible=in_town==town','npc.show()'),
+]:
+    s=s.replace(old,new)
+# Keep the saved-point validation on the combined ground, not the old region.
+# Region selection is derived from coordinates after a valid restore.
+s=unique(s,'\t\tactor=saved_point if ground.legal(saved_point) else (Vector2(180,34.5) if town else START)','\t\tactor=saved_point if ground.legal(saved_point) else (Vector2(180,34.5) if town else START)\n\t\ttown=ConnectedGround.in_city(actor)')
+
 # Existing save restore path validates coordinates through unified navigation.
 # Keep the original fallback and existing region flags. No new region enum.
 s=section(s,'func travel_city()','func layout_camera_buttons', '''func travel_city() -> void:
@@ -147,8 +159,10 @@ func update_continuous_region() -> void:
 	if now_town==town:return
 	town=now_town
 	hud.radar.town=town
+	# A walking route must survive a region crossing; clear only combat state.
 	target=null
 	pending=""
+	collecting=null
 	engaged=false
 	target_ring.hide()
 	hud.feed.text="Вересковый Град · Безопасная зона" if town else "Южные ворота · Открытая дорога"
@@ -162,7 +176,11 @@ s=unique(s,anchor,'\ttown=ConnectedGround.in_city(actor)\n'+anchor)
 # In older builds this button was visible near the old teleport. Keep it as a
 # walking aid only and don't change independent trainer buttons.
 s=re.sub(r'(?m)^(\s*)hud\.gateway\.visible=actor\.distance_to\(Vector2\(180,36\) if town else START\)<6$',r'\1hud.gateway.visible=true',s)
-s=s.replace('hud.gateway.text="К Травяному броду" if town else "В Вересковый Град"','hud.gateway.text="К выходу из города" if town else "Дорога в город"')
+s=s.replace('hud.gateway.text="К Травяному броду" if town else "В Вересковый Град"','hud.gateway.text="Путь к заставе" if town else "Дорога в город"')
+s=s.replace('hud.refresh(profile,hp,mp,"Вересковый Град" if town else "Травяной брод")','hud.refresh(profile,hp,mp,"Вересковый Град" if town else ("Южная дорога" if ConnectedGround.on_road(actor) and not field_ground.legal(actor) else "Травяной брод"))')
+# Death retains original respawn behavior, and fixes the region before autosaving.
+s=s.replace('\t\t\tactor=START\n\t\t\thero.position=Ground.point(actor)','\t\t\tactor=START\n\t\t\ttown=ConnectedGround.in_city(actor)\n\t\t\thud.radar.town=town\n\t\t\thero.position=Ground.point(actor)')
+
 s=s.replace('if (point.x>100)!=town: continue','if ConnectedGround.in_city(point)!=town: continue')
 # Explicitly avoid retaining a stale autoattack when entering a safe zone.
 if "var auto_enabled:=" in s:
@@ -221,6 +239,16 @@ func run_test()->void:
 	if not world.city_model.visible or world.get_node_or_null("ContinuousRoad")==null:
 		fail("Original city or road not visible")
 		return
+	if get_nodes_in_group("c3_population_step1").size()<10:
+		fail("Combined build lost the population update")
+		return
+	if world.trainers.size()!=9 or not world.merchant.visible or not world.smith.visible:
+		fail("Original city services not visible")
+		return
+	for npc in world.trainers+world.quest_npcs:
+		if not npc.visible:
+			fail("Original NPC hidden")
+			return
 	# Start near the existing gate to exercise actual physics traversal, not a teleport.
 	world.actor=Vector2(180,37.5)
 	world.hero.position=Ground.point(world.actor)
@@ -249,6 +277,29 @@ func run_test()->void:
 		previous=point
 	if not world.town or world.actor.distance_to(Vector2(180,37.5))>.65:
 		fail("Could not walk back into city")
+		return
+	# Cross the second boundary, between the original field and added road.
+	world.clear_target()
+	world.actor=Vector2(39,0)
+	world.hero.position=Ground.point(world.actor)
+	world.update_continuous_region()
+	world.walk_to(Vector2(46,0))
+	previous=world.actor
+	for i in 200:
+		await physics_frame
+		var point:Vector2=world.actor
+		if point.distance_to(previous)>.35 or world.town_transition:
+			fail("Field to road movement jumped")
+			return
+		previous=point
+	if world.actor.distance_to(Vector2(46,0))>.65 or not world.hud.radar.road_mode:
+		fail("Field to road crossing failed")
+		return
+	world.walk_to(Vector2(39,0))
+	for i in 200:
+		await physics_frame
+	if world.actor.distance_to(Vector2(39,0))>.65 or world.hud.radar.road_mode:
+		fail("Road to field crossing failed")
 		return
 	print("C3 seamless step 2 smoke test passed")
 	quit(0)
