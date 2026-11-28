@@ -134,7 +134,7 @@ s=s.replace('city_model.visible=town','city_model.show()')
 s=s.replace('for pile in piles: pile.visible=not town','for pile in piles: pile.show()')
 # Existing save restore path validates coordinates through unified navigation.
 # Keep the original fallback and existing region flags. No new region enum.
-s=section(s,'func travel_city()','func _camera_action', '''func travel_city() -> void:
+s=section(s,'func travel_city()','func layout_camera_buttons', '''func travel_city() -> void:
 	if town_transition or hud.shade.visible:return
 	# The button is now a walking destination, not a teleport.
 	var destination:=Vector2(-5,1.7) if town else Vector2(180,34.5)
@@ -169,6 +169,11 @@ if "var auto_enabled:=" in s:
     s=unique(s,"\ttown=now_town\n\thud.radar.town=town","\ttown=now_town\n\tauto_enabled=false\n\thud.radar.town=town")
 # Initialize radar immediately for saves on the road.
 s=unique(s,'\thud.radar.player=actor','\thud.radar.road_mode=ConnectedGround.on_road(actor) and not town and not field_ground.legal(actor)\n\thud.radar.player=actor')
+# The unified navigator is duck-typed, so route results need explicit types.
+s,n=re.subn(r'(?m)^([ \t]*var path)\s*:=\s*(ground\.route\([^\n]*\))',r'\1: PackedVector2Array = \2',s)
+if n<1: raise RuntimeError("Expected route type annotation")
+for required in ["func layout_camera_buttons(", "func apply_quality(", "func _camera_action("]:
+    if required not in s: raise RuntimeError("Existing UI function removed: "+required)
 p.write_text(s,encoding="utf-8")
 
 p=root/"field/radar.gd";s=p.read_text(encoding="utf-8")
