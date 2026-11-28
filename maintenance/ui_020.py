@@ -458,7 +458,7 @@ s=s.replace(anchor,'''  // C3 0.20 interface: existing session and save handlers
   by("c3-ui-done").onclick=()=>{settings.hidden=true;home.hidden=false;};
   menuButton.addEventListener("click",()=>{if(!modal.hidden){home.hidden=false;settings.hidden=true;}});
   window.C3Online={''')
-s=s.replace('by(\\'c3-quality\\').value=String(quality);enableMenu();','by(\\'c3-quality\\').value=String(prefs.quality);enableMenu();queueMicrotask(applyPrefs);')
+s=s.replace("by('c3-quality').value=String(quality);enableMenu();","by('c3-quality').value=String(prefs.quality);enableMenu();queueMicrotask(applyPrefs);")
 if "enableMenu();queueMicrotask(applyPrefs);" not in s:raise RuntimeError("No settings initialization")
 bridge.write_text(s,encoding="utf-8")
 # Cache-safe UI patch label, retain exact original authentication and bridge paths in historical build.
