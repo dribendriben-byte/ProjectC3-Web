@@ -1,0 +1,133 @@
+name: Build and test Project C3 UI 0.20
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'maintenance/ui_020.py'
+      - '.github/workflows/ui-020.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Identify most recent successful legacy build
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="5cbef5b6d43a38e3a579a446effe5b37bdfc37b5"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Known successful baseline: $sha" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.baseline.outputs.sha }}
+          path: baseline
+          persist-credentials: false
+      - name: Reproduce successful build with one additive change
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check PyYAML
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess, yaml
+          base=pathlib.Path("baseline").resolve()
+          population=pathlib.Path("maintenance/population_step1.py").resolve()
+          patch=pathlib.Path("maintenance/ui_020.py").resolve()
+          subprocess.run(["python3","-m","py_compile",str(patch)],check=True)
+          workflow=yaml.safe_load((base/".github/workflows/build-web.yml").read_text())
+          steps=workflow["jobs"]["build"]["steps"]
+          injected=False
+          for step in steps:
+              if "run" not in step: continue
+              name=step.get("name","")
+              run=step["run"]
+              if not isinstance(run,str): raise RuntimeError("Unknown build format")
+              if "online/integrate.py" in run and "--export-release Web" in run:
+                  if injected: raise RuntimeError("Multiple online exports")
+                  match=re.search(r'(?m)^([ \t]*)godot [^\n]*--export-release Web[^\n]*$',run)
+                  if not match or '"$alpha"' not in run: raise RuntimeError("Unknown alpha export")
+                  insertion=(
+                      'python3 "'+str(population)+'" "$alpha"\n'
+                      'python3 "'+str(patch)+'" "$alpha" online/bridge.js\n'
+                      'node --check online/bridge.js\n'
+                      'godot --headless --path "$alpha" --editor --import 2>&1 | tee /tmp/pop-import.log\n'
+                      'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/pop-import.log; then exit 1; fi\n'
+                      'godot --headless --path "$alpha" --check-only --script res://ford/world.gd\n'
+                      'timeout 90 godot --headless --path "$alpha" --script res://population_step1_test.gd 2>&1 | tee /tmp/pop-test.log\n'
+                      'grep -F "C3 population smoke test passed" /tmp/pop-test.log\n'
+                      'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/pop-test.log; then exit 1; fi\n'
+                      'timeout 120 godot --headless --path "$alpha" --script res://ui_test.gd 2>&1 | tee /tmp/ui-test.log\n'
+                      'grep -F "C3 UI 020 smoke test passed" /tmp/ui-test.log\n'
+                      'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/ui-test.log; then exit 1; fi\n'
+                      'rm "$alpha/population_step1_test.gd" "$alpha/ui_test.gd"\n')
+                  run=run[:match.start()]+insertion+run[match.start():]
+                  run=run.replace("c3-alpha-0180","c3-alpha-0200").replace("c3-online-0180","c3-online-0200").replace("c3-config-0180","c3-config-0200")
+                  injected=True
+              print("Building historical step:",name,flush=True)
+              subprocess.run(["bash","--noprofile","--norc","-e","-o","pipefail","-c",run],cwd=base,check=True)
+          if not injected: raise RuntimeError("No compatible legacy online export; no candidate created")
+          if not (base/"site/alpha/index.html").is_file(): raise RuntimeError("Missing alpha")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c3-ui-020-tested-candidate
+          path: baseline/site/alpha/
+          retention-days: 7
+      - name: Add tested UI candidate to retained current Pages site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p site /tmp/c3-prior
+          # Preserve the existing root and alpha byte-for-byte. Never deploy a
+          # partial site when no successful retained Pages artifact exists.
+          for workflow in restore-alpha.yml build-web.yml world-preview.yml preview-menu-hotfix.yml ui-020.yml; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?status=success&per_page=10" --jq '.workflow_runs[] | [.updated_at,.id] | @tsv' >> /tmp/c3-runs.txt || true
+          done
+          restored=false
+          while read -r stamp run; do
+            rm -rf /tmp/c3-prior /tmp/c3-site
+            mkdir -p /tmp/c3-prior /tmp/c3-site
+            if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -n github-pages -D /tmp/c3-prior; then continue; fi
+            if ! test -s /tmp/c3-prior/artifact.tar; then continue; fi
+            if ! tar -xf /tmp/c3-prior/artifact.tar -C /tmp/c3-site; then continue; fi
+            if ! test -s /tmp/c3-site/index.html || ! test -s /tmp/c3-site/alpha/index.html; then continue; fi
+            cp -a /tmp/c3-site/. site/
+            restored=true
+            echo "Preserved site from $run" >> "$GITHUB_STEP_SUMMARY"
+            break
+          done < <(sort -r /tmp/c3-runs.txt)
+          if [ "$restored" != true ]; then
+            echo "No complete retained site. Candidate artifact remains available; no Pages replacement." >&2
+            exit 1
+          fi
+          rm -rf site/ui-test
+          mkdir -p site/ui-test
+          cp -a baseline/site/alpha/. site/ui-test/
+          for f in index.html c3-alpha-0200.js c3-alpha-0200.wasm c3-alpha-0200.pck c3-online-0200.js c3-config-0200.js; do test -s "site/ui-test/$f"; done
+          touch site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: candidate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
