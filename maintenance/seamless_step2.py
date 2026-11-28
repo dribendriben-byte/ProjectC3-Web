@@ -46,6 +46,9 @@ func legal(p:Vector2)->bool:
 	if p.x>=min_p.x and p.x<=max_p.x and p.y>=min_p.y and p.y<=max_p.y:
 		return field.legal(p)
 	if not on_road(p):return false
+	# Two original Garden tree trunks lie in the road strip. Canopies remain intact.
+	for tree in [Vector2(111.7,9.25),Vector2(134.2,44.6)]:
+		if p.distance_to(tree)<.8:return false
 	for b in field.blocks:
 		if absf(float(b[0])-p.x)<float(b[2])+.22 and absf(float(b[1])-p.y)<float(b[3])+.22:return false
 	for b in city.blocks:
@@ -134,7 +137,7 @@ s=s.replace('for pile in piles: pile.visible=not town','for pile in piles: pile.
 s=section(s,'func travel_city()','func _camera_action', '''func travel_city() -> void:
 	if town_transition or hud.shade.visible:return
 	# The button is now a walking destination, not a teleport.
-	var destination:=Vector2(110,44) if town else Vector2(180,34.5)
+	var destination:=Vector2(-5,1.7) if town else Vector2(180,34.5)
 	walk_to(destination)
 	hud.feed.text="Следуй по дороге через южные ворота."
 
@@ -161,6 +164,9 @@ s=unique(s,anchor,'\ttown=ConnectedGround.in_city(actor)\n'+anchor)
 s=re.sub(r'(?m)^(\s*)hud\.gateway\.visible=actor\.distance_to\(Vector2\(180,36\) if town else START\)<6$',r'\1hud.gateway.visible=true',s)
 s=s.replace('hud.gateway.text="К Травяному броду" if town else "В Вересковый Град"','hud.gateway.text="К выходу из города" if town else "Дорога в город"')
 s=s.replace('if (point.x>100)!=town: continue','if ConnectedGround.in_city(point)!=town: continue')
+# Explicitly avoid retaining a stale autoattack when entering a safe zone.
+if "var auto_enabled:=" in s:
+    s=unique(s,"\ttown=now_town\n\thud.radar.town=town","\ttown=now_town\n\tauto_enabled=false\n\thud.radar.town=town")
 # Initialize radar immediately for saves on the road.
 s=unique(s,'\thud.radar.player=actor','\thud.radar.road_mode=ConnectedGround.on_road(actor) and not town and not field_ground.legal(actor)\n\thud.radar.player=actor')
 p.write_text(s,encoding="utf-8")
