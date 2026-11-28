@@ -1,8 +1,9 @@
-name: Test seamless city road on last successful alpha
+name: Test population and seamless road together on v0.18
 on:
   push:
     branches: [main]
     paths:
+      - 'maintenance/population_step1.py'
       - 'maintenance/seamless_step2.py'
       - '.github/workflows/seamless-candidate.yml'
   workflow_dispatch:
@@ -16,13 +17,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Identify most recent successful legacy build
+      - name: Pin previously verified v0.18 build
         id: baseline
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-web.yml/runs?status=success&per_page=20" --jq '.workflow_runs | map(select(.head_branch=="main" and .conclusion=="success")) | .[0].head_sha // empty')"
+          sha="5cbef5b6d43a38e3a579a446effe5b37bdfc37b5"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Known successful baseline: $sha" >> "$GITHUB_STEP_SUMMARY"
@@ -31,13 +32,14 @@ jobs:
           ref: ${{ steps.baseline.outputs.sha }}
           path: baseline
           persist-credentials: false
-      - name: Reproduce successful build with one additive change
+      - name: Reproduce v0.18 and validate both additive changes
         run: |
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check PyYAML
           python3 - <<'PY'
           import os, pathlib, re, subprocess, yaml
           base=pathlib.Path("baseline").resolve()
+          population=pathlib.Path("maintenance/population_step1.py").resolve()
           patch=pathlib.Path("maintenance/seamless_step2.py").resolve()
           workflow=yaml.safe_load((base/".github/workflows/build-web.yml").read_text())
           steps=workflow["jobs"]["build"]["steps"]
@@ -52,14 +54,18 @@ jobs:
                   match=re.search(r'(?m)^([ \t]*)godot [^\n]*--export-release Web[^\n]*$',run)
                   if not match or '"$alpha"' not in run: raise RuntimeError("Unknown alpha export")
                   insertion=(
+                      'python3 "'+str(population)+'" "$alpha"\n'
                       'python3 "'+str(patch)+'" "$alpha"\n'
                       'godot --headless --path "$alpha" --editor --import 2>&1 | tee /tmp/seamless-import.log\n'
                       'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/seamless-import.log; then exit 1; fi\n'
                       'godot --headless --path "$alpha" --check-only --script res://ford/world.gd\n'
-                      'timeout 90 godot --headless --path "$alpha" --fixed-fps 60 --script res://seamless_step2_test.gd 2>&1 | tee /tmp/seamless-test.log\n'
+                      'timeout 90 godot --headless --path "$alpha" --script res://population_step1_test.gd 2>&1 | tee /tmp/population-combined.log\n'
+                      'grep -F "C3 population smoke test passed" /tmp/population-combined.log\n'
+                      'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/population-combined.log; then exit 1; fi\n'
+                      'timeout 150 godot --headless --path "$alpha" --fixed-fps 60 --script res://seamless_step2_test.gd 2>&1 | tee /tmp/seamless-test.log\n'
                       'grep -F "C3 seamless step 2 smoke test passed" /tmp/seamless-test.log\n'
                       'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/seamless-test.log; then exit 1; fi\n'
-                      'rm "$alpha/seamless_step2_test.gd"\n')
+                      'rm "$alpha/seamless_step2_test.gd" "$alpha/population_step1_test.gd"\n')
                   run=run[:match.start()]+insertion+run[match.start():]
                   injected=True
               print("Building historical step:",name,flush=True)
@@ -69,7 +75,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: c3-seamless-tested-candidate
+          name: c3-population-and-seamless-tested-candidate
           path: baseline/site/
           retention-days: 7
       - name: Keep production untouched
