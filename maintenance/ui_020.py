@@ -51,6 +51,8 @@ func apply_bar_layout()->void:
 		target_button.position=Vector2(866+extra.x,205)
 		feed.get_parent().position=Vector2(145+extra.x*.5,458+extra.y)
 		target_name.get_parent().position=Vector2(704+extra.x,275)
+		gateway.position=Vector2(300+extra.x*.5,372+extra.y)
+		trainer_button.position=Vector2(300+extra.x*.5,315+extra.y)
 	else:
 		feed.get_parent().position=Vector2(144+extra.x*.5,421+extra.y)
 		target_name.get_parent().position=Vector2(704+extra.x,419+extra.y)'''),
@@ -273,6 +275,9 @@ var ui_names:=0
 var ui_fps_elapsed:=0.0
 var ui_ambient:Environment
 var ui_default_far:=150.0
+var ui_grass:Array[MultiMeshInstance3D]=[]
+var ui_bench_time:=0.0
+var ui_bench_frames:=0
 '''),
 ('\t\t"quality":\n\t\t\tif args.size()<2: return\n\t\t\tapply_quality(clampi(int(args[1]),0,2))','''		"quality":
 			if args.size()<2: return
@@ -290,6 +295,8 @@ var ui_default_far:=150.0
 			if args.size()>=2:
 				var settings=JSON.parse_string(str(args[1]))
 				if settings is Dictionary:apply_ui_graphics(settings)
+		"benchmark":
+			start_ui_benchmark()
 		"audio":
 			if args.size()>=2:
 				var settings=JSON.parse_string(str(args[1]))
@@ -333,18 +340,71 @@ func apply_ui_graphics(opts:Dictionary)->void:
 	if ui_fps_label==null:
 		ui_fps_label=hud.label("",13,Color("#efce8b"))
 		hud.place(hud.ui,ui_fps_label,Rect2(322,10,110,25))
-	ui_fps_label.visible=bool(opts.get("showFps",false))
+	ui_fps_label.visible=bool(opts.get("showFps",false)) or ui_bench_time>0
+	if ui_grass.is_empty():build_ui_grass()
+	var grass_mode:=clampi(int(opts.get("grass",1)),0,2)
+	for patch in ui_grass:
+		patch.visible=grass_mode!=0
+		patch.visibility_range_end=24.0 if grass_mode==1 else 0.0
 
 func apply_ui_audio(opts:Dictionary)->void:
 	AudioServer.set_bus_volume_db(0,linear_to_db(maxf(.0001,clampf(float(opts.get("master",100))*.01,0,1))))
 	sound.music.volume_db=-11+linear_to_db(maxf(.0001,clampf(float(opts.get("music",100))*.01,0,1)))
 	sound.effects_gain=clampf(float(opts.get("effects",100))*.01,0,1)
 
+func start_ui_benchmark()->void:
+	if ui_fps_label==null:return
+	ui_bench_time=20.0
+	ui_bench_frames=0
+	ui_fps_label.visible=true
+
+func build_ui_grass()->void:
+	var rng_:=RandomNumberGenerator.new()
+	rng_.seed=20020
+	var mat:=StandardMaterial3D.new()
+	mat.albedo_color=Color("#819657")
+	mat.roughness=1.0
+	var mesh:=PrismMesh.new()
+	mesh.size=Vector3(.16,.42,.08)
+	mesh.material=mat
+	for cx in [-15,-5,5,15]:
+		for cz in [-10,10]:
+			var positions:Array[Transform3D]=[]
+			for i in 40:
+				var at:=Vector2(cx+rng_.randf_range(-4.4,4.4),cz+rng_.randf_range(-3.2,3.2))
+				if absf(at.y)<3.5 or not field_ground.legal(at):continue
+				var sc:=rng_.randf_range(.65,1.2)
+				positions.append(Transform3D(Basis(Vector3.UP,rng_.randf()*TAU).scaled(Vector3.ONE*sc),Ground.point(at)+Vector3.UP*.19*sc))
+			if positions.is_empty():continue
+			var mm:=MultiMesh.new()
+			mm.transform_format=MultiMesh.TRANSFORM_3D
+			mm.mesh=mesh
+			mm.instance_count=positions.size()
+			for i in positions.size():mm.set_instance_transform(i,positions[i])
+			var node:=MultiMeshInstance3D.new()
+			node.multimesh=mm
+			node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(node)
+			ui_grass.append(node)
+
 func update_ui_display(dt:float)->void:
+	if ui_bench_time>0:
+		ui_bench_time-=dt
+		ui_bench_frames+=1
+		if ui_bench_time<=0 and ui_fps_label!=null:
+			ui_fps_label.text="Тест: %.1f FPS" % (ui_bench_frames/20.0)
+			ui_fps_label.visible=true
+			ui_bench_time=-1.0
 	ui_fps_elapsed+=dt
 	if ui_fps_elapsed<.25:return
 	ui_fps_elapsed=0.0
-	if ui_fps_label!=null and ui_fps_label.visible:ui_fps_label.text="FPS %d" % Engine.get_frames_per_second()
+	if ui_fps_label!=null and ui_fps_label.visible:
+		if ui_bench_time>0:ui_fps_label.text="Тест: %d с" % ceili(ui_bench_time)
+		elif ui_bench_time==0:ui_fps_label.text="FPS %d" % Engine.get_frames_per_second()
+	if hud.mobile_bar:
+		var extra:Vector2=(hud.ui.size-Vector2(960,540)).max(Vector2.ZERO)
+		for button in [market_button,smith_button,quest_button]:
+			if button!=null:button.position=Vector2(300+extra.x*.5,315+extra.y)
 	for mob in mobs:
 		if mob.label!=null:mob.label.visible=ui_names==0 or mob==target
 '''
@@ -355,7 +415,7 @@ anchor="  window.C3Online={"
 if s.count(anchor)!=1:raise RuntimeError("Unknown bridge")
 s=s.replace(anchor,'''  // C3 0.20 interface: existing session and save handlers remain intact.
   const prefKey="c3-ui-020";
-  const defaults={layout:matchMedia("(pointer: coarse)").matches?"mobile":"desktop",quality:2,resolution:2,shadows:2,distance:2,names:0,fps:1,aa:true,brightness:100,color:true,showFps:false,master:100,music:100,effects:100};
+  const defaults={layout:matchMedia("(pointer: coarse)").matches?"mobile":"desktop",quality:2,resolution:2,shadows:2,distance:2,grass:1,names:0,fps:1,aa:true,brightness:100,color:true,showFps:false,master:100,music:100,effects:100};
   let prefs={...defaults};try{Object.assign(prefs,JSON.parse(localStorage.getItem(prefKey)||"{}"))}catch(_){}
   const writePrefs=()=>{try{localStorage.setItem(prefKey,JSON.stringify(prefs))}catch(_){}};
   function applyPrefs(){if(!command)return;command("layout",prefs.layout==="mobile");command("graphics",JSON.stringify(prefs));command("audio",JSON.stringify(prefs));}
@@ -386,15 +446,15 @@ s=s.replace(anchor,'''  // C3 0.20 interface: existing session and save handlers
   function renderSettings(){by("c3-ui-content").replaceChildren();for(const b of settings.querySelectorAll("[data-ui-tab]"))b.classList.toggle("selected",b.dataset.uiTab===activeSettings);
     if(activeSettings==="audio"){slider("Общая громкость","master",0,100);slider("Музыка","music",0,100);slider("Эффекты","effects",0,100);by("c3-ui-note").textContent="Общий выключатель звука остаётся в игровом меню.";}
     else if(activeSettings==="panel"){choices("Управление","layout",[["mobile","Телефон"],["desktop","Компьютер"]]);by("c3-ui-note").textContent="Те же десять ячеек и назначения. На ПК: 1–0, пробел — атака. На телефоне: сенсорные ячейки справа.";}
-    else{slider("Яркость","brightness",65,140);choices("Качество","quality",triples("Низкое","Среднее","Высокое"));choices("Разрешение 3D","resolution",triples("60%","85%","100%"));choices("Тени","shadows",triples("Нет","Близко","Далеко"));choices("Прорисовка","distance",triples("65 м","100 м","150 м"));choices("Имена мобов","names",[[0,"Все"],[1,"Только цель"]]);choices("FPS","fps",triples("30","60","Без лимита"));choices("Сглаживание","aa",yesno);choices("Цвет и контраст","color",yesno);choices("Показывать FPS","showFps",yesno);by("c3-ui-note").textContent="Параметры меняются сразу; поддержка эффектов зависит от браузера и графического драйвера.";}
+    else{slider("Яркость","brightness",65,140);choices("Качество","quality",triples("Низкое","Среднее","Высокое"));choices("Разрешение 3D","resolution",triples("60%","85%","100%"));choices("Тени","shadows",triples("Нет","Близко","Далеко"));choices("Прорисовка","distance",triples("65 м","100 м","150 м"));choices("Трава и мелкие детали","grass",triples("Нет","Рядом","Везде"));choices("Имена мобов","names",[[0,"Все"],[1,"Только цель"]]);choices("FPS","fps",triples("30","60","Без лимита"));choices("Сглаживание","aa",yesno);choices("Цвет и контраст","color",yesno);choices("Показывать FPS","showFps",yesno);const test=document.createElement("button");test.type="button";test.textContent="Тест производительности · 20 сек.";test.onclick=()=>{if(!command)return;hideMenu();command("benchmark");};by("c3-ui-content").append(test);by("c3-ui-note").textContent="Параметры меняются сразу; поддержка эффектов зависит от браузера и графического драйвера.";}
   }
   function openSettings(tab){activeSettings=tab;home.hidden=true;settings.hidden=false;renderSettings();}
   for(const b of settings.querySelectorAll("[data-ui-tab]"))b.onclick=()=>openSettings(b.dataset.uiTab);
   by("c3-ui-done").onclick=()=>{settings.hidden=true;home.hidden=false;};
   menuButton.addEventListener("click",()=>{if(!modal.hidden){home.hidden=false;settings.hidden=true;}});
   window.C3Online={''')
-s=s.replace('by(\\'c3-quality\\').value=String(quality);enableMenu();','by(\\'c3-quality\\').value=String(prefs.quality);enableMenu();applyPrefs();')
-if "enableMenu();applyPrefs();" not in s:raise RuntimeError("No settings initialization")
+s=s.replace('by(\\'c3-quality\\').value=String(quality);enableMenu();','by(\\'c3-quality\\').value=String(prefs.quality);enableMenu();queueMicrotask(applyPrefs);')
+if "enableMenu();queueMicrotask(applyPrefs);" not in s:raise RuntimeError("No settings initialization")
 bridge.write_text(s,encoding="utf-8")
 # Cache-safe UI patch label, retain exact original authentication and bridge paths in historical build.
 p=root/"web/shell.html";s=p.read_text(encoding="utf-8");s=s.replace("PRE-ALPHA 0.18","PRE-ALPHA 0.20 UI TEST");p.write_text(s,encoding="utf-8")
