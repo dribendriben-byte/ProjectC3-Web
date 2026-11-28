@@ -1,0 +1,76 @@
+name: Test seamless city road on last successful alpha
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'maintenance/seamless_step2.py'
+      - '.github/workflows/seamless-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Identify most recent successful legacy build
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build-web.yml/runs?status=success&per_page=20" --jq '.workflow_runs | map(select(.head_branch=="main" and .conclusion=="success")) | .[0].head_sha // empty')"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Known successful baseline: $sha" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.baseline.outputs.sha }}
+          path: baseline
+          persist-credentials: false
+      - name: Reproduce successful build with one additive change
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check PyYAML
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess, yaml
+          base=pathlib.Path("baseline").resolve()
+          patch=pathlib.Path("maintenance/seamless_step2.py").resolve()
+          workflow=yaml.safe_load((base/".github/workflows/build-web.yml").read_text())
+          steps=workflow["jobs"]["build"]["steps"]
+          injected=False
+          for step in steps:
+              if "run" not in step: continue
+              name=step.get("name","")
+              run=step["run"]
+              if not isinstance(run,str): raise RuntimeError("Unknown build format")
+              if "online/integrate.py" in run and "--export-release Web" in run:
+                  if injected: raise RuntimeError("Multiple online exports")
+                  match=re.search(r'(?m)^([ \t]*)godot [^\n]*--export-release Web[^\n]*$',run)
+                  if not match or '"$alpha"' not in run: raise RuntimeError("Unknown alpha export")
+                  insertion=(
+                      'python3 "'+str(patch)+'" "$alpha"\n'
+                      'godot --headless --path "$alpha" --editor --import 2>&1 | tee /tmp/seamless-import.log\n'
+                      'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/seamless-import.log; then exit 1; fi\n'
+                      'godot --headless --path "$alpha" --check-only --script res://ford/world.gd\n'
+                      'timeout 90 godot --headless --path "$alpha" --fixed-fps 60 --script res://seamless_step2_test.gd 2>&1 | tee /tmp/seamless-test.log\n'
+                      'grep -F "C3 seamless step 2 smoke test passed" /tmp/seamless-test.log\n'
+                      'if grep -E "SCRIPT ERROR:|Parse Error:|Compile Error:" /tmp/seamless-test.log; then exit 1; fi\n'
+                      'rm "$alpha/seamless_step2_test.gd"\n')
+                  run=run[:match.start()]+insertion+run[match.start():]
+                  injected=True
+              print("Building historical step:",name,flush=True)
+              subprocess.run(["bash","--noprofile","--norc","-e","-o","pipefail","-c",run],cwd=base,check=True)
+          if not injected: raise RuntimeError("No compatible legacy online export; no candidate created")
+          if not (base/"site/alpha/index.html").is_file(): raise RuntimeError("Missing alpha")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c3-seamless-tested-candidate
+          path: baseline/site/
+          retention-days: 7
+      - name: Keep production untouched
+        run: echo "Candidate passed build and scene checks. No deployment performed." >> "$GITHUB_STEP_SUMMARY"
