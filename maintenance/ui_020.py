@@ -283,7 +283,11 @@ var ui_bench_frames:=0
 			if args.size()<2: return
 			apply_quality(clampi(int(args[1]),0,2))
 		"layout":
-			if args.size()>=2:hud.set_mobile_bar(bool(args[1]))
+			if args.size()>=2:
+				hud.set_mobile_bar(bool(args[1]))
+				layout_market()
+				layout_forge()
+				layout_quests()
 		"window":
 			if args.size()>=2:
 				match str(args[1]):
@@ -340,6 +344,7 @@ func apply_ui_graphics(opts:Dictionary)->void:
 	if ui_fps_label==null:
 		ui_fps_label=hud.label("",13,Color("#efce8b"))
 		hud.place(hud.ui,ui_fps_label,Rect2(322,10,110,25))
+	if ui_bench_time<0:ui_bench_time=0.0
 	ui_fps_label.visible=bool(opts.get("showFps",false)) or ui_bench_time>0
 	if ui_grass.is_empty():build_ui_grass()
 	var grass_mode:=clampi(int(opts.get("grass",1)),0,2)
@@ -457,7 +462,7 @@ s=s.replace('by(\\'c3-quality\\').value=String(quality);enableMenu();','by(\\'c3
 if "enableMenu();queueMicrotask(applyPrefs);" not in s:raise RuntimeError("No settings initialization")
 bridge.write_text(s,encoding="utf-8")
 # Cache-safe UI patch label, retain exact original authentication and bridge paths in historical build.
-p=root/"web/shell.html";s=p.read_text(encoding="utf-8");s=s.replace("PRE-ALPHA 0.18","PRE-ALPHA 0.20 UI TEST");p.write_text(s,encoding="utf-8")
+p=root/"web/shell.html";s=p.read_text(encoding="utf-8");s=s.replace("PRE-ALPHA 0.18","PRE-ALPHA 0.20 UI TEST").replace("c3-online-0180.js","c3-online-0200.js").replace("c3-config-0180.js","c3-config-0200.js");p.write_text(s,encoding="utf-8")
 (root/"ui_test.gd").write_text('''extends SceneTree
 func _initialize()->void:
 	call_deferred("run_test")
